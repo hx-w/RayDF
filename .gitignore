@@ -1,0 +1,9 @@
+mesh_to_sdf/
+__pycache__/
+datasets/
+tooth_morphology/
+logs/
+recon/
+eval/
+models/
+static/
