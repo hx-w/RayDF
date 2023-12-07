@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 '''
-给定一个网格，采样n个射线，以及射线的深度，如果射线与网格不相交，深度为-1
+给定一个网格，采样n个射线，以及射线的深度，如果射线与网格不相交，深度为1
 
 'ray_depth': shape=(n, 6)
 
@@ -58,8 +58,9 @@ def get_samples(mesh: trimesh.Trimesh, cam_transf: np.array, resol: int) -> np.a
     sample_rays = image_pos - cam_pos
     sample_rays /= np.linalg.norm(sample_rays, axis=1)[:, np.newaxis]
     
-    depth = -np.ones(shape=(resol*resol, 1)) # non hit = -1
+    depth = np.ones(shape=(resol*resol, 1)) # non hit = 1
     depth[scanx.depth_buffer.flatten()!=0, :] = np.linalg.norm(scanx.points - cam_pos, axis=1)[:, np.newaxis]
+    depth = np.clip(depth, 0, 1) # depth clamp to [0, 1]
     
     # 转换球极坐标 theta, phi
     sphere_dirs = np.zeros(shape=(sample_rays.shape[0], 2))
@@ -88,12 +89,12 @@ def sample_data(file_path: str):
     mat_path = os.path.join('datasets', split_tag, tag)+'.mat'
 
     if True or not os.path.isfile(mat_path):
-        scan_resol = 400
-        scan_count = 50
+        scan_resol = 256 # same as ODF
+        scan_count = 100
         t_samples = []
 
         for theta, phi in get_equidistant_camera_angles(scan_count):
-            cam_transf = scan.get_camera_transform_looking_at_origin(phi, theta, 2 * 1)
+            cam_transf = scan.get_camera_transform_looking_at_origin(phi, theta, 1.3)
             t_samples.append(get_samples(mesh, cam_transf, scan_resol))
         
         t_samples = np.concatenate(t_samples, axis=0)
@@ -120,5 +121,3 @@ if __name__ == '__main__':
     ]
     with open(os.path.join('split', args.target, args.split)+'.txt', 'w') as ofh:
         ofh.write('\n'.join(file_tags))
-    
-
