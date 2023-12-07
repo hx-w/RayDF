@@ -5,9 +5,9 @@
 
 import torch
 from torch import nn
-import modules
-from meta_modules import HyperNetwork
-from loss import *
+from . import modules
+from .meta_modules import HyperNetwork
+from .loss import *
 
 
 class RayDistanceField(nn.Module):
@@ -93,7 +93,7 @@ class RayDistanceField(nn.Module):
         new_coords = coords + deformation # deform into template space
 
         # calculate gradient of the deformation field
-        x = model_output['model_in'][:, :3] # input coordinates
+        x = model_output['model_in']['coords'] # input coordinates
         u = deformation[:, :, 0]
         v = deformation[:, :, 1]
         w = deformation[:, :, 2]
@@ -111,7 +111,6 @@ class RayDistanceField(nn.Module):
         depth = model_output_temp['model_out'] # SDF value in template space
 
         model_out = {
-            'model_in': model_output['model_in'],
             'grad_deform':grad_deform,
             'model_out': depth,
             'latent_vec':embedding,
@@ -142,7 +141,7 @@ class RayDistanceField(nn.Module):
 
         depth = model_output_temp['model_out'] # SDF value in template space
 
-        model_out = { 'model_in':model_output['model_in'], 'model_out': depth, 'latent_vec':embed }
+        model_out = { 'model_out': depth, 'latent_vec':embed }
         losses = embedding_loss(model_out, gt)
 
         return losses

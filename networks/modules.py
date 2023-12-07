@@ -118,11 +118,11 @@ class SingleBVPNet(MetaModule):
         # Enables us to compute gradients w.r.t. coordinates
         coords_org = model_input['coords'].requires_grad_(True)
         dirs_org = model_input['dirs'].requires_grad_(True)
-        inps = torch.cat([coords_org, dirs_org], 1)
+        inps = torch.cat([coords_org, dirs_org], 2)
 
         # various input processing methods for different applications
         output = self.net(inps, get_subdict(params, 'net'))
-        return {'model_in': inps, 'model_out': output}
+        return {'model_in': {'coords': coords_org, 'dirs': dirs_org}, 'model_out': output}
 
 
 def init_weights_normal(m):

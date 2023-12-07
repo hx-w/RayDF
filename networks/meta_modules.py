@@ -4,7 +4,7 @@
 import torch
 from torch import nn
 from collections import OrderedDict
-import modules
+from . import modules
 
 '''Adapted from the SIREN repository https://github.com/vsitzmann/siren
 '''
