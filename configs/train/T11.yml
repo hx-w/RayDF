@@ -1,4 +1,4 @@
-batch_size: 32
+batch_size: 128
 epochs: 200
 epochs_til_checkpoint: 100
 expand: -1
@@ -9,9 +9,9 @@ logging_root: ./logs
 lr: 0.0001
 model_type: sine
 num_instances: 50
-batch_max: 4000
+batch_max: 6000
 loss_grad_deform: 5
 mat_path: datasets/11_Outside
 steps_til_summary: 500
 train_split: split/train/11_Outside.txt
-checkpoint_path: logs/11_Outside/checkpoints/model_current.pth
+checkpoint_path: logs/T11/checkpoints/model_current.pth
