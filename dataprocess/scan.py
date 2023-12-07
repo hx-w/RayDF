@@ -1,4 +1,7 @@
 import numpy as np
+import sys
+sys.path.append('dataprocess')
+
 from pyrender_wrapper import render_normal_and_depth_buffers
 import pyrender
 from scipy.spatial.transform import Rotation

@@ -3,6 +3,7 @@
 import sys
 import numpy as np
 import trimesh
+from tqdm import tqdm
 
 sys.path.append('dataprocess')
 
@@ -17,16 +18,13 @@ def points_to_spheres(points, radius=1):
         trimesh.primitives.Sphere(radius=radius, center=pt) for pt in points
     ]
 
-def test_sample_generator():
-    mesh = trimesh.load('test/mesh.obj')
-    
-    sample_num = 5000000
-    scan_resol = 400
-    scan_count = sample_num // (scan_resol * scan_resol)
+def test_sample_generator(mesh: trimesh.Trimesh):
+    scan_resol = 256
+    scan_count = 3
     print('scan_count:', scan_count)
     
     t_samples = []
-    for theta, phi in prep.get_equidistant_camera_angles(scan_count):
+    for theta, phi in tqdm(prep.get_equidistant_camera_angles(scan_count), desc='sampling'):
         cam_transf = scan.get_camera_transform_looking_at_origin(phi, theta, 2 * 1)
         t_samples.append(prep.get_samples(mesh, cam_transf, scan_resol))
 
@@ -46,6 +44,21 @@ def test_sample_generator():
     # ray_visualize.colors = np.ones(shape=(ray_origins.shape[0], 4)) * np.array([255, 0, 0, 255])
     # trimesh.Scene([ray_visualize, points_to_spheres(scan.points, radius=0.1)]).show()
 
+def test_view_depth(mesh: trimesh.Trimesh):
+    cam_pos = np.array([0.0, 1.3, 0.0])
+    cam_dir = np.array([0.0, -1.0, 0.0])
+    
+    cam_transf = scan.get_camera_transform(cam_pos, cam_dir)
+    
+    scanx = scan.Scan(mesh, cam_transf, resolution=256)
+
+    scanx.save('test/test_view_depth.png')
+
 
 if __name__ == '__main__':
-    test_sample_generator()
+    mesh = trimesh.load('test/mesh.obj')
+    mesh = prep.scale_to_unit_sphere(mesh)
+
+    test_sample_generator(mesh)
+
+    test_view_depth(mesh)
