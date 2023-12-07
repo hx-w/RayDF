@@ -111,6 +111,7 @@ class RayDistanceField(nn.Module):
         depth = model_output_temp['model_out'] # SDF value in template space
 
         model_out = {
+            'coord_deform': deformation,
             'grad_deform':grad_deform,
             'model_out': depth,
             'latent_vec':embedding,

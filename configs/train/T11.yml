@@ -1,4 +1,4 @@
-batch_size: 16
+batch_size: 32
 epochs: 200
 epochs_til_checkpoint: 100
 expand: -1
