@@ -18,6 +18,7 @@ from torch import nn
 import dataset, training_loop
 from networks import loss, modules, meta_modules
 from networks.RayDFNet import RayDistanceField
+from networks.ODFNet import OmniDistanceField
 
 if __name__ == '__main__':
      os.environ['CUDA_VISIBLE_DEVICES'] = '0'
@@ -50,13 +51,14 @@ if __name__ == '__main__':
 
      p.add_argument('--num_instances', type=int,default=5, help='numbers of instance in the training set.')
      p.add_argument('--batch_max', type=int, default=4000, help='number of samples for each iteration.')
+     p.add_argument('--net', type=str, default='RayDistanceField', help='networks')
 
      # load configs if exist
      opt = p.parse_args()
      if opt.config == '':
           meta_params = vars(opt)
      else:
-          with open(opt.config,'r') as stream:
+          with open(opt.config, 'r') as stream:
                meta_params = yaml.safe_load(stream)
 
      # define dataloader
@@ -71,8 +73,12 @@ if __name__ == '__main__':
      print('Total subjects: ',sdf_dataset.num_instances)
      meta_params['num_instances'] = sdf_dataset.num_instances
 
-     # define DIF-Net
-     model = RayDistanceField(**meta_params)
+     # define Net
+     if meta_params['net'] == 'RayDistanceField':
+          model = RayDistanceField(**meta_params)
+     else:
+          model = OmniDistanceField(**meta_params)
+
      if 'checkpoint_path' in meta_params and len(meta_params['checkpoint_path']) > 0 and os.path.isfile(meta_params['checkpoint_path']):
           state_dict=torch.load(meta_params['checkpoint_path'])
           filtered_state_dict={k:v for k,v in state_dict.items() if k.find('detach')==-1}

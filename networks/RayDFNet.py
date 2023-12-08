@@ -23,10 +23,10 @@ class RayDistanceField(nn.Module):
 
         ## RayDF-Net
         # template field
-        self.template_field = modules.SingleBVPNet(type=model_type, mode='mlp', hidden_features=hidden_num, num_hidden_layers=3, in_features=5, out_features=1)
+        self.template_field = modules.RayBVPNet(type=model_type, mode='mlp', hidden_features=hidden_num, num_hidden_layers=3, in_features=5, out_features=1)
         
         # Deform-Net
-        self.deform_net=modules.SingleBVPNet(type=model_type, mode='mlp', hidden_features=hidden_num, num_hidden_layers=3, in_features=5, out_features=3)
+        self.deform_net=modules.RayBVPNet(type=model_type, mode='mlp', hidden_features=hidden_num, num_hidden_layers=3, in_features=5, out_features=3)
 
         # Hyper-Net
         self.hyper_net = HyperNetwork(hyper_in_features=self.latent_dim, hyper_hidden_layers=hyper_hidden_layers, hyper_hidden_features=hyper_hidden_features, hypo_module=self.deform_net)

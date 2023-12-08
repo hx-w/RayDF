@@ -102,7 +102,7 @@ class FCBlock(MetaModule):
         output = self.net(coords, params = params)
         return output
 
-class SingleBVPNet(MetaModule):
+class RayBVPNet(MetaModule):
     '''A canonical representation network for a BVP.'''
 
     def __init__(self, out_features=1, type='sine', in_features=2,
@@ -125,6 +125,25 @@ class SingleBVPNet(MetaModule):
         output = self.net(inps, get_subdict(params, 'net'))
         return {'model_in': {'coords': coords_org, 'dirs': dirs_org}, 'model_out': output}
 
+class SingleBVPNet(MetaModule):
+    '''A canonical representation network for a BVP.'''
+
+    def __init__(self, out_features=1, type='sine', in_features=2,
+                 mode='mlp', hidden_features=256, num_hidden_layers=3, **kwargs):
+        super().__init__()
+        self.mode = mode
+        self.net = FCBlock(in_features=in_features, out_features=out_features, num_hidden_layers=num_hidden_layers,
+                           hidden_features=hidden_features, outermost_linear=True, nonlinearity=type)
+        # print(self)
+
+    def forward(self, model_input, params=None):
+
+        # Enables us to compute gradients w.r.t. coordinates
+        inputs = model_input['inputs'].requires_grad_(True)
+        
+        # various input processing methods for different applications
+        output = self.net(inputs, get_subdict(params, 'net'))
+        return {'model_in': inputs, 'model_out': output}
 
 def init_weights_normal(m):
     if type(m) == BatchLinear or type(m) == nn.Linear:
