@@ -19,6 +19,7 @@ from torch.utils.data import DataLoader
 import configargparse
 from torch import nn
 from networks.RayDFNet import RayDistanceField
+from networks.ODFNet import OmniDistanceField
 # from calculate_chamfer_distance import compute_recon_error
 
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
@@ -32,13 +33,22 @@ with open(os.path.join(opt.config),'r') as stream:
     meta_params = yaml.safe_load(stream)
 
 
-# define DIF-Net
-model = RayDistanceField(**meta_params)
+# define Net
+if meta_params['net'] == 'RayDistanceField':
+    model = RayDistanceField(**meta_params)
+else:
+    model = OmniDistanceField(**meta_params)
+
 model.load_state_dict(torch.load(meta_params['checkpoint_path']))
 
 # The network should be fixed for evaluation.
-for param in model.template_field.parameters():
-    param.requires_grad = False
+if meta_params['net'] == 'RayDistanceField':
+    for param in model.template_field.parameters():
+        param.requires_grad = False
+else:
+    for param in model.forward_net_2.parameters():
+        param.requires_grad = False
+
 for param in model.hyper_net.parameters():
     param.requires_grad = False
 

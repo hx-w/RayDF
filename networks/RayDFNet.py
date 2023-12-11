@@ -26,7 +26,7 @@ class RayDistanceField(nn.Module):
         self.template_field = modules.RayBVPNet(type=model_type, mode='mlp', hidden_features=hidden_num, num_hidden_layers=3, in_features=5, out_features=1)
         
         # Deform-Net
-        self.deform_net=modules.RayBVPNet(type=model_type, mode='mlp', hidden_features=hidden_num, num_hidden_layers=3, in_features=5, out_features=3)
+        self.deform_net=modules.RayBVPNet(type=model_type, mode='mlp', hidden_features=hidden_num, num_hidden_layers=3, in_features=5, out_features=5)
 
         # Hyper-Net
         self.hyper_net = HyperNetwork(hyper_in_features=self.latent_dim, hyper_hidden_layers=hyper_hidden_layers, hyper_hidden_features=hyper_hidden_features, hypo_module=self.deform_net)
@@ -51,22 +51,28 @@ class RayDistanceField(nn.Module):
             hypo_params = self.hyper_net(embedding)
             model_output = self.deform_net(model_in, params=hypo_params)
 
-            deformation = model_output['model_out'][:, :, :]
-            new_coords = coords + deformation
-            model_input_temp = {'coords': new_coords, 'dirs': dirs}
+            deform_coords = model_output['model_out'][:, :, :3]
+            deform_dirs = model_output['model_out'][:, :, 3:]
+            new_coords = coords + deform_coords
+            new_dirs = dirs + deform_dirs
+            
+            model_input_temp = {'coords': new_coords, 'dirs': new_dirs}
             model_output_temp = self.template_field(model_input_temp)
 
             return model_output_temp['model_out']
 
-    def get_template_coords(self, coords, dirs, embedding):
+    def get_template_coords_dirs(self, coords, dirs, embedding):
         with torch.no_grad():
             model_in = {'coords': coords, 'dirs': dirs}
             hypo_params = self.hyper_net(embedding)
             model_output = self.deform_net(model_in, params=hypo_params)
-            deformation = model_output['model_out'][:, :, :]
-            new_coords = coords + deformation
+            deform_coords = model_output['model_out'][:, :, :3]
+            deform_dirs = model_output['model_out'][:, :, 3:]
+            
+            new_coords = coords + deform_coords
+            new_dirs = dirs + deform_dirs
 
-            return new_coords
+            return new_coords, new_dirs
 
     def get_template_field(self, coords, dirs):
         with torch.no_grad():
@@ -89,14 +95,17 @@ class RayDistanceField(nn.Module):
         # [deformation field, correction field]
         model_output = self.deform_net(model_input, params=hypo_params)
 
-        deformation = model_output['model_out'][:, :, :]  # 3 dimensional deformation field
-        new_coords = coords + deformation # deform into template space
+        deform_coords = model_output['model_out'][:, :, :3]
+        deform_dirs = model_output['model_out'][:, :, 3:]
+
+        new_coords = coords + deform_coords # deform into template space
+        new_dirs = dirs + deform_dirs
 
         # calculate gradient of the deformation field
         x = model_output['model_in']['coords'] # input coordinates
-        u = deformation[:, :, 0]
-        v = deformation[:, :, 1]
-        w = deformation[:, :, 2]
+        u = deform_coords[:, :, 0]
+        v = deform_coords[:, :, 1]
+        w = deform_coords[:, :, 2]
 
         grad_outputs = torch.ones_like(u)
         grad_u = torch.autograd.grad(u, [x], grad_outputs=grad_outputs, create_graph=True)[0]
@@ -104,14 +113,15 @@ class RayDistanceField(nn.Module):
         grad_w = torch.autograd.grad(w, [x], grad_outputs=grad_outputs, create_graph=True)[0]
         grad_deform = torch.stack([grad_u, grad_v, grad_w],dim=2)  # gradient of deformation wrt. input position
 
-        model_input_temp = {'coords':new_coords, 'dirs': dirs}
+        model_input_temp = {'coords':new_coords, 'dirs': new_dirs}
 
         model_output_temp = self.template_field(model_input_temp)
 
         depth = model_output_temp['model_out'] # SDF value in template space
 
         model_out = {
-            'coord_deform': deformation,
+            'coord_deform': deform_coords,
+            'dir_deform': deform_dirs,
             'grad_deform':grad_deform,
             'model_out': depth,
             'latent_vec':embedding,
@@ -133,10 +143,12 @@ class RayDistanceField(nn.Module):
         # [deformation field, correction field]
         model_output = self.deform_net(model_input, params=hypo_params)
 
-        deformation = model_output['model_out'][:, :, :] # 3 dimensional deformation field
-        new_coords = coords + deformation # deform into template space
+        deform_coords = model_output['model_out'][:, :, :3]
+        deform_dirs = model_output['model_out'][:, :, 3:]
+        new_coords = coords + deform_coords # deform into template space
+        new_dirs = dirs + deform_dirs
 
-        model_input_temp = {'coords':new_coords, 'dirs': dirs}
+        model_input_temp = {'coords':new_coords, 'dirs': new_dirs}
 
         model_output_temp = self.template_field(model_input_temp)
 

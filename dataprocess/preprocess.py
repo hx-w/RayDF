@@ -44,6 +44,35 @@ def scale_to_unit_sphere(mesh):
 
     return trimesh.Trimesh(vertices=vertices, faces=mesh.faces)
 
+def sample_uniform_points_in_unit_sphere(amount):
+    unit_sphere_points = np.random.uniform(-1, 1, size=(amount * 2 + 20, 3))
+    unit_sphere_points = unit_sphere_points[np.linalg.norm(unit_sphere_points, axis=1) < 1]
+
+    points_available = unit_sphere_points.shape[0]
+    if points_available < amount:
+        # This is a fallback for the rare case that too few points are inside the unit sphere
+        result = np.zeros((amount, 3))
+        result[:points_available, :] = unit_sphere_points
+        result[points_available:, :] = sample_uniform_points_in_unit_sphere(amount - points_available)
+        return result
+    else:
+        return unit_sphere_points[:amount, :]
+
+def sample_on_sphere_directions(amount):
+    unit_sphere_dirs = np.random.uniform(-1, 1, size=(amount * 2, 3))
+    unit_sphere_dirs = unit_sphere_dirs[np.linalg.norm(unit_sphere_dirs, axis=1) < 0.1]
+
+    dirs_available = unit_sphere_dirs.shape[0]
+    if dirs_available < amount:
+        # This is a fallback for the rare case that too few points are inside the unit sphere
+        result = np.zeros((amount, 3))
+        result[:dirs_available, :] = unit_sphere_dirs
+        result[dirs_available:, :] = sample_uniform_points_in_unit_sphere(amount - dirs_available)
+        return result
+    else:
+        return unit_sphere_dirs[:amount, :]
+
+
 '''
 每个相机参数的采样结果
 '''
@@ -90,13 +119,30 @@ def sample_data(file_path: str):
 
     if True or not os.path.isfile(mat_path):
         scan_resol = 256 # same as ODF
-        scan_count = 100
+        scan_count = 150
         t_samples = []
 
-        for theta, phi in get_equidistant_camera_angles(scan_count):
+        # on-sphere samplings
+        for theta, phi in get_equidistant_camera_angles(scan_count // 2):
             cam_transf = scan.get_camera_transform_looking_at_origin(phi, theta, 1.3)
             t_samples.append(get_samples(mesh, cam_transf, scan_resol))
         
+        # in-ball samplings
+        in_ball_cam_pos = sample_uniform_points_in_unit_sphere(scan_count // 2)
+        on_ball_cam_dir = sample_on_sphere_directions(scan_count // 2)
+        on_ball_cam_dir /= np.linalg.norm(on_ball_cam_dir, axis=1)[:, np.newaxis]
+        in_ball_count = np.min([in_ball_cam_pos.shape[0], on_ball_cam_dir.shape[0]])
+        
+        for ind in range(in_ball_count):
+            cam_pos = in_ball_cam_pos[ind, :]
+            cam_dir = on_ball_cam_dir[ind, :]
+            cam_transf = scan.get_camera_transform(cam_pos, cam_dir)
+            samples = get_samples(mesh, cam_transf, scan_resol)
+            # random sample resol x resol -> resol
+            rand_inds = np.random.choice(samples.shape[0], scan_resol)
+            t_samples.append(samples[rand_inds, :])
+        
+
         t_samples = np.concatenate(t_samples, axis=0)
         
         rand_inds = np.random.permutation(np.arange(t_samples.shape[0]))
