@@ -3,7 +3,7 @@ import numpy as np
 
 import trimesh
 from scipy.io import loadmat
-from dataprocess.preprocess import scale_to_unit_sphere
+from preprocess import scale_to_unit_sphere
 
 
 test_mat_path = 'datasets/T11/n1_chenshun.mat'

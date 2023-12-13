@@ -24,9 +24,6 @@ import open3d.core as o3c
 from tqdm import tqdm
 
 
-if sys.platform != 'win32':
-    os.environ['PYOPENGL_PLATFORM'] = 'egl'
-
 def get_equidistant_camera_angles(count):
     increment = math.pi * (3 - math.sqrt(5))
     for i in range(count):

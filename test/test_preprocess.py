@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 sys.path.append('dataprocess')
 
-import dataprocess.preprocess as prep
+import preprocess as prep
 import dataprocess.scan as scan
 
 def points_to_spheres(points, radius=1):

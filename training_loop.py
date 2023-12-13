@@ -80,8 +80,8 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
                 if not total_steps % steps_til_summary:
                     if is_train:
                         if kwargs['net'] == 'RayDistanceField':
-                            temp_slice_to_Y = generate_scan(cam_pos=np.array([0.0, 1.3, 0.0]), cam_dir=np.array([0.0, -1.3, 0.0]), model=model.module, resol=256)
                             temp_slice_to_X = generate_scan(cam_pos=np.array([1.3, 0.0, 0.0]), cam_dir=np.array([-1.3, 0.0, 0.0]), model=model.module, resol=256)
+                            temp_slice_to_Y = generate_scan(cam_pos=np.array([0.0, 1.3, 0.0]), cam_dir=np.array([0.0, -1.3, 0.0]), model=model.module, resol=256)
                             temp_slice_to_Z = generate_scan(cam_pos=np.array([0.0, 0.0, 1.3]), cam_dir=np.array([0.0, 0.0, -1.3]), model=model.module, resol=256)
                             writer.add_image('template_to_X', temp_slice_to_X, total_steps, dataformats='HWC')
                             writer.add_image('template_to_Y', temp_slice_to_Y, total_steps, dataformats='HWC')
