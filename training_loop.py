@@ -111,7 +111,7 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
         else:
             generate_scan(
                 cam_pos=np.array([0.0, 1.3, 0.0]),
-                cam_dir=np.array([0.0, -1.0, 0.0]),
+                cam_dir=np.array([0.0, -1.3, 0.0]),
                 model=model,
                 resol=256,
                 filename=os.path.join(checkpoints_dir, 'test.png'),

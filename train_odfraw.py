@@ -565,8 +565,8 @@ def main_function(experiment_directory, continue_from, batch_split):
                     chunk_loss = chunk_loss + 1e-3 * reg_loss.cuda()
                 
                 ## BCE loss
-                bin_gt = torch.where(depth_gt[i] == 1.0, 0.0, 1.0).cuda()
-                bin_pred = torch.where(pred_depth == 1.0, 0.0, 1.0)
+                bin_gt = torch.where(depth_gt[i] == 2.0, 0.0, 1.0).cuda()
+                bin_pred = torch.where(pred_depth == 2.0, 0.0, 1.0)
 
                 cross_entropy_constraint = crit(bin_gt, bin_pred)
                 loss_record['BCE'] += cross_entropy_constraint

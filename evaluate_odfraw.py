@@ -111,8 +111,8 @@ def reconstruct(
         if l2reg:
             loss += 1e-3 * torch.mean(latent.pow(2))
         
-        bin_gt = torch.where(depth_gt == 1.0, 0.0, 1.0).cuda()
-        bin_pred = torch.where(pred_depth == 1.0, 0.0, 1.0)
+        bin_gt = torch.where(depth_gt == 2.0, 0.0, 1.0).cuda()
+        bin_pred = torch.where(pred_depth == 2.0, 0.0, 1.0)
 
         cross_entropy_constraint = crit(bin_gt, bin_pred)
         loss += cross_entropy_constraint

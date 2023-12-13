@@ -13,7 +13,7 @@ def get_pinhole_rays(cam_pos: np.array, cam_dir: np.array, resol: int):
         fov_deg=90,
         center=cam_pos + cam_dir,
         eye=cam_pos,
-        up=[0, 1, 0],
+        up=[0, 1, 0] if (cam_dir[0] != 0 or cam_dir[2] != 0) else [0, 0, 1],
         width_px=resol,
         height_px=resol,
     )
