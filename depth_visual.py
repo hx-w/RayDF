@@ -4,23 +4,36 @@ import numpy as np
 import torch
 import seaborn as sns
 import matplotlib.pyplot as plt
+import open3d as o3d
+import open3d.core as o3c
 
-from dataprocess.scan import get_image_plane_positions
 
+def get_pinhole_rays(cam_pos: np.array, cam_dir: np.array, resol: int):
+    rays = o3d.t.geometry.RaycastingScene.create_rays_pinhole(
+        fov_deg=90,
+        center=cam_pos + cam_dir,
+        eye=cam_pos,
+        up=[0, 1, 0],
+        width_px=resol,
+        height_px=resol,
+    )
+    # normalize rays
+    rays = rays.numpy().reshape((-1, 6))
+    rays[:, 3:] /= np.linalg.norm(rays[:, 3:], axis=1)[:, np.newaxis]
+    return rays
 
 def generate_scan(cam_pos: np.array, cam_dir: np.array, model, resol: int, filename: str=None, embedding=None):
-    image_pos = get_image_plane_positions(cam_pos, cam_dir, 0.1, 1, resol, resol)
 
     pixel_num = resol * resol
-    sample_rays = image_pos - cam_pos
-    sample_rays /= np.linalg.norm(sample_rays, axis=1)[:, np.newaxis]
+ 
+    rays = get_pinhole_rays(cam_pos, cam_dir, resol) # (n, 6)
     
     # to theta, phi
     inp_dirs = np.zeros(shape=(pixel_num, 2))
-    inp_dirs[:, 0] = np.arctan2(sample_rays[:, 1], sample_rays[:, 0])
-    inp_dirs[:, 1] = np.arccos(sample_rays[:, 2])
+    inp_dirs[:, 0] = np.arctan2(rays[:, 4], rays[:, 3])
+    inp_dirs[:, 1] = np.arccos(rays[:, 5])
     
-    inp_coords = torch.from_numpy(np.ones_like(sample_rays) * cam_pos).reshape((1, pixel_num, 3)).cuda().float()
+    inp_coords = torch.from_numpy(rays[:, :3]).reshape((1, pixel_num, 3)).cuda().float()
     inp_dirs = torch.from_numpy(inp_dirs).reshape((1, pixel_num, 2)).cuda().float()
     
     if embedding is not None:

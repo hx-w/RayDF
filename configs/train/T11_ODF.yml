@@ -9,7 +9,7 @@ logging_root: ./logs
 lr: 0.0001
 model_type: relu
 num_instances: 50
-batch_max: 6000
+batch_max: 8000
 loss_grad_deform: 5
 mat_path: datasets/T11
 steps_til_summary: 500

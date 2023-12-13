@@ -19,10 +19,10 @@ import configargparse
 from glob import glob
 from scipy.io import savemat
 from tqdm.contrib.concurrent import process_map
+import open3d as o3d
+import open3d.core as o3c
+from tqdm import tqdm
 
-
-sys.path.append('dataprocess')
-import scan
 
 if sys.platform != 'win32':
     os.environ['PYOPENGL_PLATFORM'] = 'egl'
@@ -72,32 +72,40 @@ def sample_on_sphere_directions(amount):
     else:
         return unit_sphere_dirs[:amount, :]
 
-
 '''
 每个相机参数的采样结果
 '''
-def get_samples(mesh: trimesh.Trimesh, cam_transf: np.array, resol: int) -> np.array:
-    # cam_transf = scan.get_camera_transform(cam_pos, cam_dir)
-    cam_pos = np.matmul(cam_transf, np.array([0, 0, 0, 1]))[:3]
-    cam_dir = cam_transf[:3, 2]
+def get_samples(mesh: trimesh.Trimesh, cam_pos: np.array, cam_dir: np.array, resol: int) -> np.array:
+    scene = o3d.t.geometry.RaycastingScene()
     
-    scanx = scan.Scan(mesh, cam_transf, resol, False)
-    image_pos = scan.get_image_plane_positions(cam_pos, cam_dir, 0.1, 1, resol, resol)
-
-    sample_rays = image_pos - cam_pos
-    sample_rays /= np.linalg.norm(sample_rays, axis=1)[:, np.newaxis]
+    scene.add_triangles(o3d.t.geometry.TriangleMesh.from_legacy(mesh.as_open3d))
     
-    depth = np.ones(shape=(resol*resol, 1)) # non hit = 1
-    depth[scanx.depth_buffer.flatten()!=0, :] = np.linalg.norm(scanx.points - cam_pos, axis=1)[:, np.newaxis]
-    depth = np.clip(depth, 0, 1) # depth clamp to [0, 1]
+    rays = o3d.t.geometry.RaycastingScene.create_rays_pinhole(
+        fov_deg=90,
+        center=cam_pos + cam_dir,
+        eye=cam_pos,
+        up=[0, 1, 0],
+        width_px=resol,
+        height_px=resol,
+    )
+    # normalize rays
+    rays = rays.numpy().reshape((-1, 6))
+    rays[:, 3:] /= np.linalg.norm(rays[:, 3:], axis=1)[:, np.newaxis]
+    rays = o3c.Tensor(rays.reshape((resol, resol, 6)))
+    
+    ans = scene.cast_rays(rays)
+    
+    depth = ans['t_hit'].numpy().reshape((-1, 1))
+    depth[depth == np.inf] = 2.0
+    
+    rays = rays.numpy().reshape((-1, 6))
     
     # 转换球极坐标 theta, phi
-    sphere_dirs = np.zeros(shape=(sample_rays.shape[0], 2))
-    sphere_dirs[:, 0] = np.arctan2(sample_rays[:, 1], sample_rays[:, 0])
-    sphere_dirs[:, 1] = np.arccos(sample_rays[:, 2])
+    sphere_dirs = np.zeros(shape=(rays.shape[0], 2))
+    sphere_dirs[:, 0] = np.arctan2(rays[:, 4], rays[:, 3])
+    sphere_dirs[:, 1] = np.arccos(rays[:, 5])
     
-    ray_origins = np.ones_like(sample_rays) * cam_pos
-    samples = np.concatenate([ray_origins, sphere_dirs, depth], axis=1)
+    samples = np.concatenate([rays[:, :3], sphere_dirs, depth], axis=1)
     
     # (resol*resol, 6)
     return samples
@@ -123,34 +131,43 @@ def sample_data(file_path: str):
         t_samples = []
 
         # on-sphere samplings
+        # in_ball_cam_pos_1 = sample_uniform_points_in_unit_sphere(scan_count // 2)
+        # in_ball_cam_pos_2 = sample_uniform_points_in_unit_sphere(scan_count // 2)
+        # in_ball_dir = in_ball_cam_pos_2 - in_ball_cam_pos_1
+        # in_ball_dir /= np.linalg.norm(in_ball_dir, axis=1)[:, np.newaxis]
+        
+        # for ind in range(in_ball_dir.shape[0]):
+        #     cam_pos = in_ball_dir[ind, :]
+        #     t_samples.append(get_samples(mesh, cam_pos, -cam_pos, scan_resol))
+        
         for theta, phi in get_equidistant_camera_angles(scan_count // 2):
-            cam_transf = scan.get_camera_transform_looking_at_origin(phi, theta, 1.3)
-            t_samples.append(get_samples(mesh, cam_transf, scan_resol))
+            # 圆球上的方向向量
+            cam_pos = np.array([np.sin(theta) * np.cos(phi), np.sin(theta) * np.sin(phi), np.cos(theta)]) * 1.3
+            t_samples.append(get_samples(mesh, cam_pos, -cam_pos, scan_resol))
         
         # in-ball samplings
-        in_ball_cam_pos = sample_uniform_points_in_unit_sphere(scan_count // 2)
-        on_ball_cam_dir = sample_on_sphere_directions(scan_count // 2)
-        on_ball_cam_dir /= np.linalg.norm(on_ball_cam_dir, axis=1)[:, np.newaxis]
-        in_ball_count = np.min([in_ball_cam_pos.shape[0], on_ball_cam_dir.shape[0]])
+        in_ball_cam_pos_1 = sample_uniform_points_in_unit_sphere(scan_count // 2)
+        in_ball_cam_pos_2 = sample_uniform_points_in_unit_sphere(scan_count // 2)
+        in_ball_dir = in_ball_cam_pos_2 - in_ball_cam_pos_1
+        in_ball_dir /= np.linalg.norm(in_ball_dir, axis=1)[:, np.newaxis]
         
-        for ind in range(in_ball_count):
-            cam_pos = in_ball_cam_pos[ind, :]
-            cam_dir = on_ball_cam_dir[ind, :]
-            cam_transf = scan.get_camera_transform(cam_pos, cam_dir)
-            samples = get_samples(mesh, cam_transf, scan_resol)
+        for ind in range(in_ball_dir.shape[0]):
+            cam_pos = in_ball_cam_pos_1[ind, :]
+            cam_dir = in_ball_dir[ind, :]
+            samples = get_samples(mesh, cam_pos, cam_dir, scan_resol)
             # random sample resol x resol -> resol
-            rand_inds = np.random.choice(samples.shape[0], scan_resol)
+            rand_inds = np.random.choice(samples.shape[0], scan_resol * scan_resol // 5)
             t_samples.append(samples[rand_inds, :])
-        
 
         t_samples = np.concatenate(t_samples, axis=0)
-        
+
         rand_inds = np.random.permutation(np.arange(t_samples.shape[0]))
         
         print('finish:', file_path.split('/')[-1], 'with samples', t_samples.shape[0])
 
         savemat(mat_path, { 'ray_depth': t_samples[rand_inds, :] })
-
+        # savemat(mat_path, {'ray_depth': t_samples})
+        
 if __name__ == '__main__':
     p = configargparse.ArgumentParser()
     p.add_argument('--split', '-s', type=str, required=True, help='`11_Outside`')
@@ -158,9 +175,11 @@ if __name__ == '__main__':
     p.add_argument('--target', '-t', type=str, default='train')
     args = p.parse_args()
     
-    files = fetch_files(args.data, args.split)
+    files = fetch_files(args.data, f'{args.split[1:]}_Outside')
 
-    process_map(sample_data, files, max_workers=12, chunksize=1)
+    # process_map(sample_data, files, max_workers=5, chunksize=1)
+    for file in tqdm(files):
+        sample_data(file)
 
     file_tags = [
         os.path.split(os.path.split(fp)[0])[-1] for fp in files

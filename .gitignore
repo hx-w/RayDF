@@ -7,3 +7,5 @@ recon/
 eval/
 models/
 static/
+hide_*
+experiments/

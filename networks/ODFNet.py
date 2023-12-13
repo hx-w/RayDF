@@ -97,7 +97,8 @@ class OmniDistanceField(nn.Module):
         depth = model_2_output['model_out']
 
         model_out = { 'model_out': depth, 'latent_vec':embed }
-        losses = embedding_loss(model_out, gt)
+        # losses = embedding_loss(model_out, gt)
+        losses = odf_loss(model_out, gt)
 
         return losses
 
