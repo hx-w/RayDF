@@ -8,6 +8,8 @@ from torch import nn
 from . import modules
 from .meta_modules import HyperNetwork
 from .loss import *
+from torch.nn.functional import normalize
+import torchgeometry as tgm
 
 
 class RayDistanceField(nn.Module):
@@ -23,10 +25,10 @@ class RayDistanceField(nn.Module):
 
         ## RayDF-Net
         # template field
-        self.template_field = modules.RayBVPNet(type=model_type, mode='mlp', hidden_features=hidden_num, num_hidden_layers=3, in_features=5, out_features=1)
+        self.template_field = modules.RayBVPNet(type=model_type, mode='mlp', hidden_features=hidden_num, num_hidden_layers=5, in_features=6, out_features=1)
         
         # Deform-Net
-        self.deform_net=modules.RayBVPNet(type=model_type, mode='mlp', hidden_features=hidden_num, num_hidden_layers=3, in_features=5, out_features=5)
+        self.deform_net=modules.RayBVPNet(type=model_type, mode='mlp', hidden_features=hidden_num, num_hidden_layers=3, in_features=6, out_features=6)
 
         # Hyper-Net
         self.hyper_net = HyperNetwork(hyper_in_features=self.latent_dim, hyper_hidden_layers=hyper_hidden_layers, hyper_hidden_features=hyper_hidden_features, hypo_module=self.deform_net)
@@ -54,12 +56,24 @@ class RayDistanceField(nn.Module):
             deform_coords = model_output['model_out'][:, :, :3]
             deform_dirs = model_output['model_out'][:, :, 3:]
             new_coords = coords + deform_coords
-            new_dirs = dirs + deform_dirs
+            
+            _s = list(deform_dirs.shape[:2]) + [4, 4]
+            rot = tgm.angle_axis_to_rotation_matrix(deform_dirs.reshape(-1, 3))
+            rot = rot.reshape(_s)[:, :, :3, :3] # 不用齐次矩阵
+
+            new_dirs = torch.matmul(rot, dirs.reshape(list(dirs.shape) + [1])).reshape(coords.shape)
+            # new_dirs = dirs + deform_dirs
+            
+            # new_dirs = normalize(new_dirs, dim=2)
+            
+            ## modify [phi, theta]
+            # new_dirs[:, :, 0] %= 2 * torch.pi
+            # new_dirs[:, :, 1] = torch.clamp(new_dirs[:, :, 1], 0.0, torch.pi)
             
             model_input_temp = {'coords': new_coords, 'dirs': new_dirs}
             model_output_temp = self.template_field(model_input_temp)
 
-            return model_output_temp['model_out']
+            return torch.clamp(model_output_temp['model_out'], 0.0, 2.0)
 
     def get_template_coords_dirs(self, coords, dirs, embedding):
         with torch.no_grad():
@@ -70,7 +84,14 @@ class RayDistanceField(nn.Module):
             deform_dirs = model_output['model_out'][:, :, 3:]
             
             new_coords = coords + deform_coords
-            new_dirs = dirs + deform_dirs
+            _s = list(deform_dirs.shape[:2]) + [4, 4]
+            rot = tgm.angle_axis_to_rotation_matrix(deform_dirs.reshape(-1, 3))
+            rot = rot.reshape(_s)[:, :, :3, :3] # 不用齐次矩阵
+
+            new_dirs = torch.matmul(rot, dirs.reshape(list(dirs.shape) + [1])).reshape(coords.shape)
+            # new_dirs = dirs + deform_dirs
+
+            # new_dirs = normalize(new_dirs, dim=2)
 
             return new_coords, new_dirs
 
@@ -98,8 +119,26 @@ class RayDistanceField(nn.Module):
         deform_coords = model_output['model_out'][:, :, :3]
         deform_dirs = model_output['model_out'][:, :, 3:]
 
-        new_coords = coords + deform_coords # deform into template space
-        new_dirs = dirs + deform_dirs
+        ## 不越界 phi
+        # indx = (deform_dirs + dirs)[:, :, 1] > torch.pi
+        # indxx = (deform_dirs + dirs)[:, :, 1] < 0
+        
+        # deform_dirs[indx][:, 1] = torch.pi - dirs[indx][:, 1]
+        # deform_dirs[indxx][:, 1] = 0 - dirs[indxx][:, 1]
+        ## 
+
+        new_coords = coords + deform_coords # deform into template space        
+
+        _s = list(deform_dirs.shape[:2]) + [4, 4]
+        rot = tgm.angle_axis_to_rotation_matrix(deform_dirs.reshape(-1, 3))
+        rot = rot.reshape(_s)[:, :, :3, :3] # 不用齐次矩阵
+
+        new_dirs = torch.matmul(rot, dirs.reshape(list(dirs.shape) + [1])).reshape(coords.shape)
+        # new_dirs = dirs + deform_dirs
+        
+        # new_dirs = normalize(new_dirs, dim=2)
+        ## modify [phi, theta]
+        # new_dirs[:, :, 0] %= 2 * torch.pi
 
         # calculate gradient of the deformation field
         x = model_output['model_in']['coords'] # input coordinates
@@ -117,10 +156,12 @@ class RayDistanceField(nn.Module):
 
         model_output_temp = self.template_field(model_input_temp)
 
-        depth = model_output_temp['model_out'] # SDF value in template space
-
+        depth = torch.clamp(model_output_temp['model_out'], 0.0, 2.0)
+        
         model_out = {
             'coord_deform': deform_coords,
+            'dir_old': dirs,
+            'dir_new': new_dirs,
             'dir_deform': deform_dirs,
             'grad_deform':grad_deform,
             'model_out': depth,
@@ -145,14 +186,33 @@ class RayDistanceField(nn.Module):
 
         deform_coords = model_output['model_out'][:, :, :3]
         deform_dirs = model_output['model_out'][:, :, 3:]
+ 
+        # ## 不越界 phi
+        # indx = (deform_dirs + dirs)[:, :, 1] > torch.pi
+        # indxx = (deform_dirs + dirs)[:, :, 1] < 0
+        
+        # deform_dirs[indx][:, 1] = torch.pi - dirs[indx][:, 1]
+        # deform_dirs[indxx][:, 1] = 0 - dirs[indxx][:, 1]
+        ## 
+ 
         new_coords = coords + deform_coords # deform into template space
-        new_dirs = dirs + deform_dirs
+        _s = list(deform_dirs.shape[:2]) + [4, 4]
+        rot = tgm.angle_axis_to_rotation_matrix(deform_dirs.reshape(-1, 3))
+        rot = rot.reshape(_s)[:, :, :3, :3] # 不用齐次矩阵
+
+        new_dirs = torch.matmul(rot, dirs.reshape(list(dirs.shape) + [1])).reshape(coords.shape)
+        # new_dirs = dirs + deform_dirs
+
+        # new_dirs = normalize(new_dirs, dim=2)
+
+        ## modify [phi, theta]
+        # new_dirs[:, :, 0] %= 2 * torch.pi
 
         model_input_temp = {'coords':new_coords, 'dirs': new_dirs}
 
         model_output_temp = self.template_field(model_input_temp)
 
-        depth = model_output_temp['model_out'] # SDF value in template space
+        depth = torch.clamp(model_output_temp['model_out'], 0.0, 2.0)
 
         model_out = { 'model_out': depth, 'latent_vec':embed }
         losses = embedding_loss(model_out, gt)

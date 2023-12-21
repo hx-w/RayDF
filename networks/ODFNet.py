@@ -23,11 +23,13 @@ class OmniDistanceField(nn.Module):
 
         ## ODF-Net
         
-        self.forward_net_1 = modules.RayBVPNet(type=model_type, mode='mlp', hidden_features=hidden_num, num_hidden_layers=2, in_features=5, out_features=hidden_num)
-        self.forward_net_2 = modules.SingleBVPNet(type=model_type, mode='mlp', hidden_features=hidden_num, num_hidden_layers=6, in_features=5+hidden_num, out_features=1)
+        # self.forward_net_1 = modules.RayBVPNet(type=model_type, mode='mlp', hidden_features=hidden_num, num_hidden_layers=2, in_features=5, out_features=hidden_num)
+        # self.forward_net_2 = modules.SingleBVPNet(type=model_type, mode='mlp', hidden_features=hidden_num, num_hidden_layers=3, in_features=5+hidden_num, out_features=1)
+
+        self.forward_net = modules.SingleBVPNet(type=model_type, mode='mlp', hidden_features=hidden_num, num_hidden_layers=5, in_features=6, out_features=1)
         
         # Hyper-Net
-        self.hyper_net = HyperNetwork(hyper_in_features=self.latent_dim, hyper_hidden_layers=hyper_hidden_layers, hyper_hidden_features=hyper_hidden_features, hypo_module=self.forward_net_1)
+        self.hyper_net = HyperNetwork(hyper_in_features=self.latent_dim, hyper_hidden_layers=hyper_hidden_layers, hyper_hidden_features=hyper_hidden_features, hypo_module=self.forward_net)
 
         print(self)
 
@@ -45,14 +47,16 @@ class OmniDistanceField(nn.Module):
     # for generation
     def inference(self, coords, dirs, embedding):
         with torch.no_grad():
-            model_in = {'coords': coords, 'dirs': dirs}
+            # model_in = {'coords': coords, 'dirs': dirs}
             hypo_params = self.hyper_net(embedding)
             
-            model_output = self.forward_net_1(model_in, params=hypo_params)
-            model_2_input = torch.cat([model_output['model_out'], coords, dirs], 2)
+            model_output = self.forward_net({'inputs': torch.cat([coords, dirs], 2)}, params=hypo_params)
+            return model_output['model_out']
+            # model_output = self.forward_net_1(model_in, params=hypo_params)
+            # model_2_input = torch.cat([model_output['model_out'], coords, dirs], 2)
 
-            model_2_output = self.forward_net_2({'inputs': model_2_input})
-            return model_2_output['model_out']
+            # model_2_output = self.forward_net_2({'inputs': model_2_input})
+            # return model_2_output['model_out']
 
     # for training
     def forward(self, model_input, gt, **kwargs):
@@ -64,6 +68,17 @@ class OmniDistanceField(nn.Module):
         # get network weights for Deform-net using Hyper-net 
         embedding = self.latent_codes(instance_idx)
         hypo_params = self.hyper_net(embedding)
+
+        model_output = self.forward_net({'inputs': torch.cat([coords, dirs], 2)}, params=hypo_params)
+        depth = model_output['model_out']
+        
+        losses = odf_loss({
+            'model_out': depth,
+            'latent_vec': embedding,
+            'hypo_params': hypo_params
+        }, gt)
+    
+        return losses
 
         model_output = self.forward_net_1(model_input, params=hypo_params)
         model_2_input = torch.cat([model_output['model_out'], coords, dirs], 2)
@@ -88,6 +103,17 @@ class OmniDistanceField(nn.Module):
 
         # get network weights for Deform-net using Hyper-net 
         hypo_params = self.hyper_net(embed)
+
+        model_output = self.forward_net({'inputs': torch.cat([coords, dirs], 2)}, params=hypo_params)
+
+        depth = model_output['model_out']
+
+        model_out = { 'model_out': depth, 'latent_vec':embed }
+        # losses = embedding_loss(model_out, gt)
+        losses = odf_loss(model_out, gt)
+
+        return losses
+
 
         model_output = self.forward_net_1(model_input, params=hypo_params)
 

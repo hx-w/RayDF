@@ -34,7 +34,8 @@ def generate_scan(cam_pos: np.array, cam_dir: np.array, model, resol: int, filen
     inp_dirs[:, 1] = np.arccos(rays[:, 5])
     
     inp_coords = torch.from_numpy(rays[:, :3]).reshape((1, pixel_num, 3)).cuda().float()
-    inp_dirs = torch.from_numpy(inp_dirs).reshape((1, pixel_num, 2)).cuda().float()
+    # inp_dirs = torch.from_numpy(inp_dirs).reshape((1, pixel_num, 2)).cuda().float()
+    inp_dirs = torch.from_numpy(rays[:, 3:]).reshape((1, pixel_num, 3)).cuda().float()
     
     if embedding is not None:
         depth_mat = (
@@ -47,12 +48,14 @@ def generate_scan(cam_pos: np.array, cam_dir: np.array, model, resol: int, filen
             .squeeze(1).detach().cpu().numpy().reshape((resol, resol))
         )
 
-    style = 'coolwarm'
+    # print(depth_mat)
+    style = 'gray'
     # plt.figure(figsize = (50, 50))
     htmap = sns.heatmap(depth_mat, cmap=style, cbar=False, xticklabels=False, yticklabels=False)
     
     if filename is not None:
         htmap.get_figure().savefig(filename, pad_inches=False, bbox_inches='tight')
+        return
 
     canvas = htmap.get_figure().canvas
     width, height = canvas.get_width_height()

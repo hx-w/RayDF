@@ -24,23 +24,37 @@ huber_fn = HuberFunc()
 # criterion = nn.BCEWithLogitsLoss()
 criterion = nn.BCEWithLogitsLoss()
 
-def raydf_loss(model_output, gt, loss_grad_deform=5):
+def dir_to_cdir(dir):
+    return torch.cat([
+        (torch.sin(dir[:, :, 1]) * torch.cos(dir[:, :, 0])).reshape(-1, 1),
+        (torch.sin(dir[:, :, 1]) * torch.sin(dir[:, :, 0])).reshape(-1, 1),
+        torch.cos(dir[:, :, 1]).reshape(-1, 1)
+    ], dim=1)
 
+def raydf_loss(model_output, gt, loss_grad_deform=5):
     gt_depth = gt['depth']
 
     pred_depth = torch.clamp(model_output['model_out'], 0.0, 2.0)
     embeddings = model_output['latent_vec']
     gradient_deform = model_output['grad_deform']
-    coord_deform = model_output['coord_deform']
-    dir_deform = model_output['dir_deform']
+    coord_deform = model_output['coord_deform'].reshape(-1, 3)
+    dirs = model_output['dir_old'].reshape(-1, 3)
+    new_dirs = model_output['dir_new'].reshape(-1, 3)
+    deform_dir = model_output['dir_deform'].reshape(-1, 3)
 
     # depth prior
     depth_constraint = pred_depth - gt_depth
 
     # deform point-wise prior
     deform_coord_constraint = huber_fn(torch.norm(coord_deform, dim=1), delta=0.75)
-    deform_dir_constraint = huber_fn(torch.norm(dir_deform, dim=1), delta=0.5)
     
+    # deform dirs
+    # cdir_old, cdir_new = dir_to_cdir(dirs), dir_to_cdir(new_dirs)
+    
+    deform_dir_constraint = 1 - torch.sum(dirs * new_dirs, dim=1).unsqueeze(0)
+    deform_dir_constraint += huber_fn(torch.norm(deform_dir, dim=1), delta=0.75)
+
+
     # binary cross entropy loss
     bin_gt = torch.where(gt_depth == 2.0, 0.0, 1.0)
     bin_pred = torch.where(pred_depth == 2.0, 0.0, 1.0)
@@ -66,7 +80,7 @@ def raydf_loss(model_output, gt, loss_grad_deform=5):
         'deform_coord_constraint': deform_coord_constraint.mean() * 2e3,
         'deform_dir_constraint': deform_dir_constraint.mean() * 2e3,
         'grad_deform_constraint':grad_deform_constraint.mean()* loss_grad_deform,
-        'cross_entropy_constraint': cross_entropy_constraint * 1e3,
+        'cross_entropy_constraint': cross_entropy_constraint * 1e2,
     }
 
 def odf_loss(model_output, gt):
@@ -97,7 +111,7 @@ def odf_loss(model_output, gt):
     # -----------------
     return {
         'depth': torch.abs(depth_constraint ** 2).mean() * 5e3,
-        'cross_entropy_constraint': cross_entropy_constraint * 1e3,
+        'cross_entropy_constraint': cross_entropy_constraint * 1e2,
         'embeddings_constraint': embeddings_constraint.mean() * 1e2,
     }
 

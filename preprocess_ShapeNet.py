@@ -7,7 +7,7 @@
 | cam_x | cam_y | cam_z | ray_theta | ray_phi | depth |
 '''
 
-
+import gc
 import math
 import sys
 import os
@@ -81,7 +81,7 @@ def get_samples(mesh: trimesh.Trimesh, cam_pos: np.array, cam_dir: np.array, res
         fov_deg=90,
         center=cam_pos + cam_dir,
         eye=cam_pos,
-        up=[0, 1, 0] if (cam_dir[0] != 0 or cam_dir[2] != 0) else [0, 0, 1],
+        up=[0, 1, 0],
         width_px=resol,
         height_px=resol,
     )
@@ -102,14 +102,13 @@ def get_samples(mesh: trimesh.Trimesh, cam_pos: np.array, cam_dir: np.array, res
     sphere_dirs[:, 0] = np.arctan2(rays[:, 4], rays[:, 3])
     sphere_dirs[:, 1] = np.arccos(rays[:, 5])
     
-    # samples = np.concatenate([rays[:, :3], sphere_dirs, depth], axis=1)
-    samples = np.concatenate([rays, depth], axis=1)
+    samples = np.concatenate([rays[:, :3], sphere_dirs, depth], axis=1)
     
     # (resol*resol, 6)
     return samples
 
 def fetch_files(data_dir: str, split_tag: str) -> List[str]:
-    return glob(os.path.join(data_dir, split_tag) + '/*/*.obj')
+    return glob(os.path.join(data_dir, split_tag) + '/*/models/*.obj')
 
 def sample_data(file_path: str):
     print('process:', file_path)
@@ -118,14 +117,17 @@ def sample_data(file_path: str):
     mesh = scale_to_unit_sphere(trimesh.load(file_path))
     split_tag = args.split
 
-    tag = os.path.split(os.path.split(file_path)[0])[-1]
+    tag = file_path.split('/')[-3]
+    # tag = os.path.split(os.path.split(file_path)[0])[-2]
     os.makedirs(os.path.join('datasets', split_tag), exist_ok=True)
 
     mat_path = os.path.join('datasets', split_tag, tag)+'.mat'
+    
+    print('save to:', mat_path)
 
-    if True or not os.path.isfile(mat_path):
+    if not os.path.isfile(mat_path):
         scan_resol = 256 # same as ODF
-        scan_count = 300
+        scan_count = 150
         t_samples = []
 
         # on-sphere samplings
@@ -163,8 +165,9 @@ def sample_data(file_path: str):
         
         print('finish:', file_path.split('/')[-1], 'with samples', t_samples.shape[0])
 
-        # savemat(mat_path, { 'ray_depth': t_samples[rand_inds, :] })
-        savemat(mat_path, {'ray_depth': t_samples})
+        savemat(mat_path, { 'ray_depth': t_samples[rand_inds, :] })
+        # savemat(mat_path, {'ray_depth': t_samples})
+    gc.collect()
         
 if __name__ == '__main__':
     p = configargparse.ArgumentParser()
@@ -173,14 +176,15 @@ if __name__ == '__main__':
     p.add_argument('--target', '-t', type=str, default='train')
     args = p.parse_args()
     
-    files = fetch_files(args.data, f'{args.split[1:]}_Outside')
+    # files = fetch_files(args.data, f'{args.split[1:]}_Outside')
+    files = fetch_files(args.data, args.split)
 
     # process_map(sample_data, files, max_workers=5, chunksize=1)
     for file in tqdm(files):
         sample_data(file)
 
     file_tags = [
-        os.path.split(os.path.split(fp)[0])[-1] for fp in files
+        fp.split('/')[-3] for fp in files
     ]
     with open(os.path.join('split', args.target, args.split)+'.txt', 'w') as ofh:
         ofh.write('\n'.join(file_tags))

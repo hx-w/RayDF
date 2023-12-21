@@ -46,7 +46,7 @@ if meta_params['net'] == 'RayDistanceField':
     for param in model.template_field.parameters():
         param.requires_grad = False
 else:
-    for param in model.forward_net_2.parameters():
+    for param in model.forward_net.parameters():
         param.requires_grad = False
 
 for param in model.hyper_net.parameters():

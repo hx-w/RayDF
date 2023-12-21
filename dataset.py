@@ -19,7 +19,7 @@ class RayDepthDataset(Dataset):
         samples = loadmat(mat_path)['ray_depth']
         
         self.coords = samples[:, :3]
-        self.dirs = samples[:, 3:5]
+        self.dirs = samples[:, 3:-1]
         self.depth = samples[:, -1:]
         self.batch_max = batch_max
 

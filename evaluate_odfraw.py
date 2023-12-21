@@ -312,8 +312,8 @@ if __name__ == "__main__":
             if not save_latvec_only:
                 start = time.time()
                 with torch.no_grad():
-                    cam_pos = np.array([0.4, -0.5, 0.0])
-                    cam_dir = np.array([0.2, 0.2, 0.0])
+                    cam_pos = np.array([0.0, 0.0, 1.0])
+                    cam_dir = np.array([0.0, 0.0, -1.0])
                     resol = args.resolution
                     
                     rays = get_pinhole_rays(cam_pos, cam_dir, resol)
