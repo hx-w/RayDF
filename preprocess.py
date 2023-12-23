@@ -31,6 +31,17 @@ def get_equidistant_camera_angles(count):
         phi = ((i + 1) * increment) % (2 * math.pi)
         yield theta, phi
 
+def get_random_on_sphere_points(count):
+    u, v = np.random.rand(2, count)
+    phi = (2 * np.pi * u).reshape(-1, 1)
+    theta = np.arccos(2 * v - 1).reshape(-1, 1)
+    
+    return np.concatenate([
+        np.sin(theta) * np.cos(phi),
+        np.sin(theta) * np.sin(phi),
+        np.cos(theta)
+    ], axis=1)
+
 def scale_to_unit_sphere(mesh):
     if isinstance(mesh, trimesh.Scene):
         mesh = mesh.dump().sum()
@@ -125,19 +136,15 @@ def sample_data(file_path: str):
 
     if True or not os.path.isfile(mat_path):
         scan_resol = 256 # same as ODF
-        scan_count = 300
+        scan_count = 200
         t_samples = []
 
         # on-sphere samplings
-        # in_ball_cam_pos_1 = sample_uniform_points_in_unit_sphere(scan_count // 2)
-        # in_ball_cam_pos_2 = sample_uniform_points_in_unit_sphere(scan_count // 2)
-        # in_ball_dir = in_ball_cam_pos_2 - in_ball_cam_pos_1
-        # in_ball_dir /= np.linalg.norm(in_ball_dir, axis=1)[:, np.newaxis]
-        
-        # for ind in range(in_ball_dir.shape[0]):
-        #     cam_pos = in_ball_dir[ind, :]
-        #     t_samples.append(get_samples(mesh, cam_pos, -cam_pos, scan_resol))
-        
+        cam_poses = get_random_on_sphere_points(scan_count // 2)
+        for ind in range(cam_poses.shape[0]):
+            cam_pos = cam_poses[ind, :]
+            t_samples.append(get_samples(mesh, cam_pos, -cam_pos, scan_resol))
+            
         for theta, phi in get_equidistant_camera_angles(scan_count // 2):
             # 圆球上的方向向量
             cam_pos = np.array([np.sin(theta) * np.cos(phi), np.sin(theta) * np.sin(phi), np.cos(theta)]) * 1.3

@@ -22,6 +22,28 @@ def get_pinhole_rays(cam_pos: np.array, cam_dir: np.array, resol: int):
     rays[:, 3:] /= np.linalg.norm(rays[:, 3:], axis=1)[:, np.newaxis]
     return rays
 
+def generate_inference(cam_pos: np.array, cam_dir: np.array, model, resol: int, embedding=None):
+    pixel_num = resol * resol
+ 
+    rays = get_pinhole_rays(cam_pos, cam_dir, resol) # (n, 6)
+    
+    inp_coords = torch.from_numpy(rays[:, :3]).reshape((1, pixel_num, 3)).cuda().float()
+    inp_dirs = torch.from_numpy(rays[:, 3:]).reshape((1, pixel_num, 3)).cuda().float()
+    
+    if embedding is not None:
+        depth = (
+            model.inference(inp_coords, inp_dirs, embedding)
+            .squeeze(1).detach().cpu().numpy().reshape((-1, 1))
+        )
+    else:
+        depth = (
+            model.get_template_field(inp_coords, inp_dirs)
+            .squeeze(1).detach().cpu().numpy().reshape((-1, 1))
+        )
+    
+    return np.concatenate([rays, depth], axis=1)
+    
+
 def generate_scan(cam_pos: np.array, cam_dir: np.array, model, resol: int, filename: str=None, embedding=None):
 
     pixel_num = resol * resol

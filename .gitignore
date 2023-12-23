@@ -9,3 +9,4 @@ models/
 static/
 hide_*
 experiments/
+viewports/

@@ -8,8 +8,10 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 from tqdm.autonotebook import tqdm
 import numpy as np
+import trimesh
 
-from depth_visual import generate_scan
+from depth_visual import generate_scan, generate_inference
+import preprocess as prep
 
 def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_checkpoint, model_dir, loss_schedules=None, is_train=True, **kwargs):
     print('Training Info:')
@@ -134,4 +136,19 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
                 embedding=embedding
             )
 
-            # sdf_meshing.create_mesh(model, os.path.join(checkpoints_dir,'test'), embedding=embedding, N=128, level=0, get_color=False, vol_size=20.0)
+            # reconstruct pointcloud
+            t_samples = []
+            for theta, phi in prep.get_equidistant_camera_angles(20):
+                # 圆球上的方向向量
+                cam_pos = np.array([np.sin(theta) * np.cos(phi), np.sin(theta) * np.sin(phi), np.cos(theta)]) * 1.3
+                t_samples.append(generate_inference(cam_pos, -cam_pos, model, 256, embedding))
+            
+            t_samples = np.concatenate(t_samples, axis=0)
+            
+            t_samples = t_samples[t_samples[:, -1] < 1.5]
+            coords, dirs, depth = t_samples[:, :3], t_samples[:, 3:-1], t_samples[:, -1].reshape(-1, 1)
+            
+            points = coords + dirs * depth
+            
+            trimesh.PointCloud(points).export(os.path.join(checkpoints_dir, 'test.ply'))
+            
