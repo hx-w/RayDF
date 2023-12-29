@@ -140,10 +140,10 @@ def sample_data(file_path: str):
         t_samples = []
 
         # on-sphere samplings
-        cam_poses = get_random_on_sphere_points(scan_count // 2)
-        for ind in range(cam_poses.shape[0]):
-            cam_pos = cam_poses[ind, :]
-            t_samples.append(get_samples(mesh, cam_pos, -cam_pos, scan_resol))
+        # cam_poses = get_random_on_sphere_points(scan_count // 2)
+        # for ind in range(cam_poses.shape[0]):
+        #     cam_pos = cam_poses[ind, :]
+        #     t_samples.append(get_samples(mesh, cam_pos, -cam_pos, scan_resol))
             
         for theta, phi in get_equidistant_camera_angles(scan_count // 2):
             # 圆球上的方向向量

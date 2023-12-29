@@ -10,9 +10,10 @@ from tqdm.autonotebook import tqdm
 import numpy as np
 import trimesh
 
-from depth_visual import generate_scan, generate_inference
+from depth_visual import generate_scan, generate_inference_by_rays
 import preprocess as prep
 
+radius = 0.5
 def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_checkpoint, model_dir, loss_schedules=None, is_train=True, **kwargs):
     print('Training Info:')
     print('data_path:\t\t',kwargs['mat_path'])
@@ -82,9 +83,9 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
                 if not total_steps % steps_til_summary:
                     if is_train:
                         if kwargs['net'] == 'RayDistanceField':
-                            temp_slice_to_X = generate_scan(cam_pos=np.array([1.3, 0.0, 0.0]), cam_dir=np.array([-1.3, 0.0, 0.0]), model=model.module, resol=256)
-                            temp_slice_to_Y = generate_scan(cam_pos=np.array([0.0, 1.3, 0.0]), cam_dir=np.array([0.0, -1.3, 0.0]), model=model.module, resol=256)
-                            temp_slice_to_Z = generate_scan(cam_pos=np.array([0.0, 0.0, 1.3]), cam_dir=np.array([0.0, 0.0, -1.3]), model=model.module, resol=256)
+                            temp_slice_to_X = generate_scan(cam_pos=np.array([radius, 0.0, 0.0]), cam_dir=np.array([-radius, 0.0, 0.0]), model=model.module, resol=256)
+                            temp_slice_to_Y = generate_scan(cam_pos=np.array([0.0, radius, 0.0]), cam_dir=np.array([0.0, -radius, 0.0]), model=model.module, resol=256)
+                            temp_slice_to_Z = generate_scan(cam_pos=np.array([0.0, 0.0, radius]), cam_dir=np.array([0.0, 0.0, -radius]), model=model.module, resol=256)
                             writer.add_image('template_to_X', temp_slice_to_X, total_steps, dataformats='HWC')
                             writer.add_image('template_to_Y', temp_slice_to_Y, total_steps, dataformats='HWC')
                             writer.add_image('template_to_Z', temp_slice_to_Z, total_steps, dataformats='HWC')
@@ -112,24 +113,24 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
                        os.path.join(checkpoints_dir, 'model_final.pth'))
         else:
             generate_scan(
-                cam_pos=np.array([-1.3, 0.0, 0.0]),
-                cam_dir=np.array([1.3, 0.0, 0.0]),
+                cam_pos=np.array([radius, 0.0, 0.0]),
+                cam_dir=np.array([-radius, 0.0, 0.0]),
                 model=model,
                 resol=256,
                 filename=os.path.join(checkpoints_dir, 'test_X.png'),
                 embedding=embedding
             )
             generate_scan(
-                cam_pos=np.array([0.0, 1.3, 0.0]),
-                cam_dir=np.array([0.0, -1.3, 0.0]),
+                cam_pos=np.array([0.0, radius, 0.0]),
+                cam_dir=np.array([0.0, -radius, 0.0]),
                 model=model,
                 resol=256,
                 filename=os.path.join(checkpoints_dir, 'test_Y.png'),
                 embedding=embedding
             )
             generate_scan(
-                cam_pos=np.array([0.0, 0.0, 1.3]),
-                cam_dir=np.array([0.0, 0.0, -1.3]),
+                cam_pos=np.array([0.0, 0.0, radius]),
+                cam_dir=np.array([0.0, 0.0, -radius]),
                 model=model,
                 resol=256,
                 filename=os.path.join(checkpoints_dir, 'test_Z.png'),
@@ -137,18 +138,19 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
             )
 
             # reconstruct pointcloud
-            t_samples = []
-            for theta, phi in prep.get_equidistant_camera_angles(20):
-                # 圆球上的方向向量
-                cam_pos = np.array([np.sin(theta) * np.cos(phi), np.sin(theta) * np.sin(phi), np.cos(theta)]) * 1.3
-                t_samples.append(generate_inference(cam_pos, -cam_pos, model, 256, embedding))
+            counts = 30000            
+            in_ball_cam_pos_1 = prep.sample_uniform_points_in_unit_sphere(counts)
+            in_ball_cam_pos_2 = prep.sample_uniform_points_in_unit_sphere(counts)
+            free_dir = in_ball_cam_pos_2 - in_ball_cam_pos_1
+            free_dir /= np.linalg.norm(free_dir, axis=1)[:, np.newaxis]
+            free_ori = in_ball_cam_pos_1 * 0.5
             
-            t_samples = np.concatenate(t_samples, axis=0)
-            
+            rays = np.concatenate([free_ori, free_dir], axis=1)
+            t_samples = generate_inference_by_rays(rays, model, embedding)
+
             t_samples = t_samples[t_samples[:, -1] < 1.5]
             coords, dirs, depth = t_samples[:, :3], t_samples[:, 3:-1], t_samples[:, -1].reshape(-1, 1)
             
             points = coords + dirs * depth
             
             trimesh.PointCloud(points).export(os.path.join(checkpoints_dir, 'test.ply'))
-            

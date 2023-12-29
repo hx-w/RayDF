@@ -56,8 +56,8 @@ def raydf_loss(model_output, gt, loss_grad_deform=5):
 
 
     # binary cross entropy loss
-    bin_gt = torch.where(gt_depth >= 1.9, 0.0, 1.0)
-    bin_pred = torch.where(pred_depth >= 1.9, 0.0, 1.0)
+    bin_gt = torch.where(gt_depth >= 2.0, 0.0, 1.0)
+    bin_pred = torch.where(pred_depth >= 2.0, 0.0, 1.0)
 
     cross_entropy_constraint = criterion(bin_gt, bin_pred)
 
@@ -78,13 +78,13 @@ def raydf_loss(model_output, gt, loss_grad_deform=5):
 
     # -----------------
     return {
-        'depth': torch.abs(depth_constraint ** 2).mean() * 3e6, 
-        'embeddings_constraint': embeddings_constraint.mean() * 1e3,
-        'deform_coord_constraint': deform_coord_constraint.mean() * 2e3,
-        'deform_dir_constraint': deform_dir_constraint.mean() * 2e3,
+        'depth': torch.abs(depth_constraint ** 2).mean() * 5e3, 
+        'embeddings_constraint': embeddings_constraint.mean() * 1e2,
+        'deform_coord_constraint': deform_coord_constraint.mean() * 5e2,
+        'deform_dir_constraint': deform_dir_constraint.mean() * 5e2,
         'grad_deform_constraint':grad_deform_constraint.mean()* loss_grad_deform,
-        'cross_entropy_constraint': cross_entropy_constraint.mean() * 1e2,
-        'inner_constraint': inner_constraint.sum() * 5e2,
+        'cross_entropy_constraint': cross_entropy_constraint.mean() * 2e2,
+        'inner_constraint': inner_constraint.mean() * 2e2,
     }
 
 def odf_loss(model_output, gt):
@@ -111,12 +111,15 @@ def odf_loss(model_output, gt):
 
     # latent code prior
     embeddings_constraint = torch.mean(embeddings ** 2)
+    ## inner
+    inner_constraint = torch.where(gt_depth == 2, torch.zeros_like(pred_depth), torch.exp(-1e1 * torch.abs(2 - pred_depth)))
 
     # -----------------
     return {
         'depth': torch.abs(depth_constraint ** 2).mean() * 3e6,
         'cross_entropy_constraint': cross_entropy_constraint * 1e2,
         'embeddings_constraint': embeddings_constraint.mean() * 1e2,
+        'inner_constraint': inner_constraint.mean() * 1e2
     }
 
 def embedding_loss(model_output, gt):
@@ -129,9 +132,17 @@ def embedding_loss(model_output, gt):
     # sdf regression loss from Sitzmannn et al. 2020
     depth_constraint = torch.clamp(pred_depth, 0.0, 2.0) - torch.clamp(gt_depth, 0.0, 2.0)
     embeddings_constraint = torch.mean(embeddings ** 2)
+    bin_gt = torch.where(gt_depth >= 2.0, 0.0, 1.0)
+    bin_pred = torch.where(pred_depth >= 2.0, 0.0, 1.0)
+
+    cross_entropy_constraint = criterion(bin_gt, bin_pred)
+    ## inner
+    inner_constraint = torch.where(gt_depth == 2, torch.zeros_like(pred_depth), torch.exp(-1e1 * torch.abs(2 - pred_depth)))
 
     # -----------------
     return {
-        'depth_constraint': torch.abs(depth_constraint ** 2).mean() * 3e6,
-        'embeddings_constraint': embeddings_constraint.mean() * 1e2
+        'depth_constraint': torch.abs(depth_constraint ** 2).mean() * 5e6,
+        'embeddings_constraint': embeddings_constraint.mean() * 2e2,
+        'cross_entropy_constraint': cross_entropy_constraint.mean() * 2e2,
+        'inner_constraint': inner_constraint.mean() * 2e2
     }

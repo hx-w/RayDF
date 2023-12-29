@@ -26,7 +26,7 @@ class OmniDistanceField(nn.Module):
         # self.forward_net_1 = modules.RayBVPNet(type=model_type, mode='mlp', hidden_features=hidden_num, num_hidden_layers=2, in_features=5, out_features=hidden_num)
         # self.forward_net_2 = modules.SingleBVPNet(type=model_type, mode='mlp', hidden_features=hidden_num, num_hidden_layers=3, in_features=5+hidden_num, out_features=1)
 
-        self.forward_net = modules.SingleBVPNet(type=model_type, mode='mlp', hidden_features=hidden_num, num_hidden_layers=5, in_features=6, out_features=1)
+        self.forward_net = modules.SingleBVPNet(type=model_type, mode='mlp', hidden_features=hidden_num, num_hidden_layers=3, in_features=6, out_features=1)
         
         # Hyper-Net
         self.hyper_net = HyperNetwork(hyper_in_features=self.latent_dim, hyper_hidden_layers=hyper_hidden_layers, hyper_hidden_features=hyper_hidden_features, hypo_module=self.forward_net)

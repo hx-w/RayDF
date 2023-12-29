@@ -11,7 +11,7 @@ import numpy as np
 import preprocess as prep
 
 
-base_dir = '../../DIF-Net/tooth_morphology/datasets/11_Outside'
+base_dir = '../../DIF-Net/tooth_morphology/datasets/15_Outside'
 
 all_files = glob(base_dir + '/*/*.obj')
 

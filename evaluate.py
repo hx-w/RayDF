@@ -70,7 +70,7 @@ for file in all_names:
 
     # load ground truth data
     sdf_dataset = dataset.RayDepthMulti(root_dir=[os.path.join(meta_params['mat_path'], file+'.mat')], **meta_params)
-    dataloader = DataLoader(sdf_dataset, shuffle=True, collate_fn=sdf_dataset.collate_fn, batch_size=1, num_workers=0, drop_last=True)
+    dataloader = DataLoader(sdf_dataset, shuffle=True, collate_fn=sdf_dataset.collate_fn, batch_size=meta_params['batch_size'], num_workers=0, drop_last=True)
 
     # shape embedding
     training_loop.train(model=model, train_dataloader=dataloader, model_dir=save_path, is_train=False, **meta_params)

@@ -22,13 +22,9 @@ def get_pinhole_rays(cam_pos: np.array, cam_dir: np.array, resol: int):
     rays[:, 3:] /= np.linalg.norm(rays[:, 3:], axis=1)[:, np.newaxis]
     return rays
 
-def generate_inference(cam_pos: np.array, cam_dir: np.array, model, resol: int, embedding=None):
-    pixel_num = resol * resol
- 
-    rays = get_pinhole_rays(cam_pos, cam_dir, resol) # (n, 6)
-    
-    inp_coords = torch.from_numpy(rays[:, :3]).reshape((1, pixel_num, 3)).cuda().float()
-    inp_dirs = torch.from_numpy(rays[:, 3:]).reshape((1, pixel_num, 3)).cuda().float()
+def generate_inference_by_rays(rays: np.array, model, embedding=None):
+    inp_coords = torch.from_numpy(rays[:, :3]).reshape((1, rays.shape[0], 3)).cuda().float()
+    inp_dirs = torch.from_numpy(rays[:, 3:]).reshape((1, rays.shape[0], 3)).cuda().float()
     
     if embedding is not None:
         depth = (
@@ -42,6 +38,12 @@ def generate_inference(cam_pos: np.array, cam_dir: np.array, model, resol: int, 
         )
     
     return np.concatenate([rays, depth], axis=1)
+    
+
+def generate_inference(cam_pos: np.array, cam_dir: np.array, model, resol: int, embedding=None):
+    rays = get_pinhole_rays(cam_pos, cam_dir, resol) # (n, 6)
+    
+    return generate_inference_by_rays(rays, model, embedding)
     
 
 def generate_scan(cam_pos: np.array, cam_dir: np.array, model, resol: int, filename: str=None, embedding=None):
