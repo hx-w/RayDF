@@ -2,7 +2,7 @@ batch_size: 128
 epochs: 500
 epochs_til_checkpoint: 100
 expand: -1
-experiment_name: airplane_RDFX
+experiment_name: airplane_RDF
 hidden_num: 128
 latent_dim: 128
 logging_root: ./logs
@@ -13,6 +13,6 @@ loss_grad_deform: 100
 mat_path: datasets/airplane
 steps_til_summary: 500
 train_split: split/train/airplane.txt
-checkpoint_path: logs/airplane_RDFX/checkpoints/model_current.pth
+checkpoint_path: logs/airplane_RDF/checkpoints/model_current.pth
 net: RayDistanceField
 lr: 0.0001

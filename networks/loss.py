@@ -141,7 +141,7 @@ def embedding_loss(model_output, gt):
 
     # -----------------
     return {
-        'depth_constraint': torch.abs(depth_constraint ** 2).mean() * 5e6,
+        'depth_constraint': torch.abs(depth_constraint ** 2).mean() * 5e3,
         'embeddings_constraint': embeddings_constraint.mean() * 2e2,
         'cross_entropy_constraint': cross_entropy_constraint.mean() * 2e2,
         'inner_constraint': inner_constraint.mean() * 2e2

@@ -1,21 +1,21 @@
 # -*- coding: utf-8 -*-
+
+
 '''
-给定一个网格，采样n个射线，以及射线的深度，如果射线与网格不相交，深度为1
+brief:
 
-'ray_depth': shape=(n, 6)
-
-| cam_x | cam_y | cam_z | ray_theta | ray_phi | depth |
 '''
 
 
-import math
+import gc
 import sys
 import os
-from typing import List
+from typing import List, Tuple
+import logging
+import configargparse
 
 import trimesh
 import numpy as np
-import configargparse
 from glob import glob
 from scipy.io import savemat
 from tqdm.contrib.concurrent import process_map
@@ -24,33 +24,14 @@ import open3d.core as o3c
 from tqdm import tqdm
 
 
-def get_equidistant_camera_angles(count):
-    increment = math.pi * (3 - math.sqrt(5))
-    for i in range(count):
-        theta = math.asin(-1 + 2 * i / (count - 1))
-        phi = ((i + 1) * increment) % (2 * math.pi)
-        yield theta, phi
-
-def get_random_on_sphere_points(count):
-    u, v = np.random.rand(2, count)
-    phi = (2 * np.pi * u).reshape(-1, 1)
-    theta = np.arccos(2 * v - 1).reshape(-1, 1)
-    
-    return np.concatenate([
-        np.sin(theta) * np.cos(phi),
-        np.sin(theta) * np.sin(phi),
-        np.cos(theta)
-    ], axis=1)
-
-def scale_to_unit_sphere(mesh):
-    if isinstance(mesh, trimesh.Scene):
-        mesh = mesh.dump().sum()
-
-    vertices = mesh.vertices - mesh.bounding_box.centroid
-    distances = np.linalg.norm(vertices, axis=1)
-    vertices /= np.max(distances)
-
-    return trimesh.Trimesh(vertices=vertices, faces=mesh.faces)
+logger = logging.getLogger('preprocess')
+def setup_logger():
+    global logger
+    logger.setLevel(logging.DEBUG)
+    handler = logging.StreamHandler(sys.stdout)
+    formatter = logging.Formatter("[%(levelname)s] - %(message)s")
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
 def sample_uniform_points_in_unit_sphere(amount):
     unit_sphere_points = np.random.uniform(-1, 1, size=(amount * 2 + 20, 3))
@@ -66,128 +47,148 @@ def sample_uniform_points_in_unit_sphere(amount):
     else:
         return unit_sphere_points[:amount, :]
 
-def sample_on_sphere_directions(amount):
-    unit_sphere_dirs = np.random.uniform(-1, 1, size=(amount * 2, 3))
-    unit_sphere_dirs = unit_sphere_dirs[np.linalg.norm(unit_sphere_dirs, axis=1) < 0.1]
+def sample_sphere_directions(amount):
+    in_ball_cam_pos_1 = sample_uniform_points_in_unit_sphere(amount)
+    in_ball_cam_pos_2 = sample_uniform_points_in_unit_sphere(amount)
+    free_dirs = in_ball_cam_pos_2 - in_ball_cam_pos_1
+    free_dirs /= np.linalg.norm(free_dirs, axis=1)[:, np.newaxis]
 
-    dirs_available = unit_sphere_dirs.shape[0]
-    if dirs_available < amount:
-        # This is a fallback for the rare case that too few points are inside the unit sphere
-        result = np.zeros((amount, 3))
-        result[:dirs_available, :] = unit_sphere_dirs
-        result[dirs_available:, :] = sample_uniform_points_in_unit_sphere(amount - dirs_available)
-        return result
+    return free_dirs
+    
+
+'''
+取所有几何中最长的轴向边长的倒数为缩放因数，同比例缩放所有几何
+保证所有几何的对齐关系不变
+'''
+def load_and_unify(mesh_paths: List[str], scale_factor: float=0.0) -> Tuple[trimesh.Trimesh]:
+    mesh_num = len(mesh_paths)
+    meshes =  [trimesh.load(mpath, force='mesh') for mpath in tqdm(mesh_paths, desc='loading')]
+    
+    # to unit ball
+    if scale_factor:
+        max_scale = scale_factor
     else:
-        return unit_sphere_dirs[:amount, :]
+        # max / 2
+        max_scale = np.max([np.linalg.norm(mesh.vertices, axis=1).max() for mesh in meshes]) / 2.
+
+    logger.info(f'max scale: {max_scale:.6f}')
+
+    if np.abs(max_scale - 1.) > 1e-6:
+        for ind in range(mesh_num):
+            meshes[ind].apply_scale(1. / max_scale)
+
+            try:
+                meshes[ind].export(mesh_paths[ind])
+            except Exception as e:
+                logger.warn(f'SKIP file saving failed: {mesh_paths[ind]}')
+
+    else:
+        logger.info(f'geometry scaling passed')
+
+    tags = [mesh_path.split(os.sep)[-2] for mesh_path in mesh_paths]
+    return tags, meshes
 
 '''
-每个相机参数的采样结果
+根据NeuralODF的采样策略
+- 60% 单位球内的自由射线
+- 40% 网格采样点球面射线 (以采样点为圆心，0.5为半径的球面)
+
+由于所有几何都缩放至单位球内，根据经验，设采样的射线在以1.3为半径的球面
+on_mesh_nums 为网格离散点个数
+
+由于surf_rays的depth不一定为0.5 (因为可能有遮挡)，所以后续仍需要算surf_rays的depth
 '''
-def get_samples(mesh: trimesh.Trimesh, cam_pos: np.array, cam_dir: np.array, resol: int) -> np.array:
-    scene = o3d.t.geometry.RaycastingScene()
+def generate_sample_rays(mesh: trimesh.Trimesh, counts: int, radius: float=1.3, on_mesh_nums: int=8000) -> np.array:
+    free_count = int(0.6 * counts)
+    surf_count = counts - free_count
     
-    scene.add_triangles(o3d.t.geometry.TriangleMesh.from_legacy(mesh.as_open3d))
+    ## freespace
+    in_ball_cam_pos_1 = sample_uniform_points_in_unit_sphere(free_count)
+    in_ball_cam_pos_2 = sample_uniform_points_in_unit_sphere(free_count)
+    free_dirs = in_ball_cam_pos_2 - in_ball_cam_pos_1
+    free_dirs /= np.linalg.norm(free_dirs, axis=1)[:, np.newaxis]
+    free_oris = in_ball_cam_pos_1 * radius
+
+    free_rays = np.concatenate([free_oris, free_dirs], axis=1)
+
+    ## on-mesh
+    on_surfs = mesh.sample(on_mesh_nums)
+    each_free_count = surf_count // on_mesh_nums
     
-    rays = o3d.t.geometry.RaycastingScene.create_rays_pinhole(
-        fov_deg=90,
-        center=cam_pos + cam_dir,
-        eye=cam_pos,
-        up=[0, 1, 0] if (cam_dir[0] != 0 or cam_dir[2] != 0) else [0, 0, 1],
-        width_px=resol,
-        height_px=resol,
-    )
-    # normalize rays
-    rays = rays.numpy().reshape((-1, 6))
-    rays[:, 3:] /= np.linalg.norm(rays[:, 3:], axis=1)[:, np.newaxis]
-    rays = o3c.Tensor(rays.reshape((resol, resol, 6)))
+    surf_rays = []
+    for on_surf_point in on_surfs:
+        each_free_dirs = sample_sphere_directions(each_free_count)
+        
+        surf_rays.append(np.concatenate([
+            np.tile(on_surf_point, (each_free_count, 1)) - each_free_dirs * 0.5, each_free_dirs
+        ], axis=1))
+        
+    surf_rays = np.concatenate(surf_rays, axis=0)
     
-    ans = scene.cast_rays(rays)
+    return np.concatenate([free_rays, surf_rays], axis=0)
+
+'''
+无交点的射线长度设为2.0
+'''   
+def generate_sample_depth(scene: o3d.t.geometry.RaycastingScene, rays: np.array) -> np.array:
+    riposta = scene.cast_rays(o3c.Tensor(rays.astype(np.float32)))
     
-    depth = ans['t_hit'].numpy().reshape((-1, 1))
+    depth = riposta['t_hit'].numpy().reshape(-1, 1)
     depth[depth == np.inf] = 2.0
     
-    rays = rays.numpy().reshape((-1, 6))
+    return depth
+
+def sample_dataset(mesh: trimesh.Trimesh, sample_counts: int) -> np.array:
+    scene = o3d.t.geometry.RaycastingScene()
+    scene.add_triangles(o3d.t.geometry.TriangleMesh.from_legacy(mesh.as_open3d))
     
-    # 转换球极坐标 theta, phi
-    sphere_dirs = np.zeros(shape=(rays.shape[0], 2))
-    sphere_dirs[:, 0] = np.arctan2(rays[:, 4], rays[:, 3])
-    sphere_dirs[:, 1] = np.arccos(rays[:, 5])
+    ## generate rays
+    sample_rays  = generate_sample_rays(mesh, sample_counts, radius=1.3, on_mesh_nums=8000)
     
-    # samples = np.concatenate([rays[:, :3], sphere_dirs, depth], axis=1)
-    samples = np.concatenate([rays, depth], axis=1)
+    ## generate depth
+    sample_depth = generate_sample_depth(scene, sample_rays)
+
+    samples = np.concatenate([sample_rays, sample_depth], axis=1)
+
+    rand_inds = np.random.permutation(np.arange(samples.shape[0]))
     
-    # (resol*resol, 6)
-    return samples
+    return samples[rand_inds, :]
 
-def fetch_files(data_dir: str, split_tag: str) -> List[str]:
-    return glob(os.path.join(data_dir, split_tag) + '/*/*.obj')
-
-def sample_data(file_path: str):
-    print('process:', file_path)
-    
-    # mesh scaled
-    mesh = scale_to_unit_sphere(trimesh.load(file_path))
-    split_tag = args.split
-
-    tag = os.path.split(os.path.split(file_path)[0])[-1]
-    os.makedirs(os.path.join('datasets', split_tag), exist_ok=True)
-
-    mat_path = os.path.join('datasets', split_tag, tag)+'.mat'
-
-    if True or not os.path.isfile(mat_path):
-        scan_resol = 256 # same as ODF
-        scan_count = 200
-        t_samples = []
-
-        # on-sphere samplings
-        # cam_poses = get_random_on_sphere_points(scan_count // 2)
-        # for ind in range(cam_poses.shape[0]):
-        #     cam_pos = cam_poses[ind, :]
-        #     t_samples.append(get_samples(mesh, cam_pos, -cam_pos, scan_resol))
-            
-        for theta, phi in get_equidistant_camera_angles(scan_count // 2):
-            # 圆球上的方向向量
-            cam_pos = np.array([np.sin(theta) * np.cos(phi), np.sin(theta) * np.sin(phi), np.cos(theta)]) * 1.3
-            t_samples.append(get_samples(mesh, cam_pos, -cam_pos, scan_resol))
-        
-        # in-ball samplings
-        in_ball_cam_pos_1 = sample_uniform_points_in_unit_sphere(scan_count // 2)
-        in_ball_cam_pos_2 = sample_uniform_points_in_unit_sphere(scan_count // 2)
-        in_ball_dir = in_ball_cam_pos_2 - in_ball_cam_pos_1
-        in_ball_dir /= np.linalg.norm(in_ball_dir, axis=1)[:, np.newaxis]
-        
-        for ind in range(in_ball_dir.shape[0]):
-            cam_pos = in_ball_cam_pos_1[ind, :]
-            cam_dir = in_ball_dir[ind, :]
-            samples = get_samples(mesh, cam_pos, cam_dir, scan_resol)
-            # random sample resol x resol -> resol
-            rand_inds = np.random.choice(samples.shape[0], scan_resol * scan_resol // 5)
-            t_samples.append(samples[rand_inds, :])
-
-        t_samples = np.concatenate(t_samples, axis=0)
-
-        rand_inds = np.random.permutation(np.arange(t_samples.shape[0]))
-        
-        print('finish:', file_path.split('/')[-1], 'with samples', t_samples.shape[0])
-
-        # savemat(mat_path, { 'ray_depth': t_samples[rand_inds, :] })
-        savemat(mat_path, {'ray_depth': t_samples})
-        
 if __name__ == '__main__':
     p = configargparse.ArgumentParser()
-    p.add_argument('--split', '-s', type=str, required=True, help='`11_Outside`')
-    p.add_argument('--data', '-d', type=str, default='../../DIF-Net/tooth_morphology/datasets')
+    p.add_argument('--split', '-s', type=str, required=True, help='`airplane`')
+    p.add_argument('--data_dir', '-d', type=str, default='../../datasets')
     p.add_argument('--target', '-t', type=str, default='train')
+    p.add_argument('--scale_factor', type=float, default=0.0, help='force scale, auto scale to unit ball if 0.0')
+    p.add_argument('--sample_nums', '-n', type=int, default=1000000, help='rays sampled for each mesh')
+    p.add_argument('--skip', action='store_true', default=False, help='skip sampled meshes')
     args = p.parse_args()
     
-    files = fetch_files(args.data, f'{args.split[1:]}_Outside')
+    setup_logger()
 
-    # process_map(sample_data, files, max_workers=5, chunksize=1)
-    for file in tqdm(files):
-        sample_data(file)
+    mesh_paths = glob(os.path.join(args.data_dir, args.split) + '/*/*.obj')
+    tags, meshes = load_and_unify(mesh_paths, args.scale_factor)
 
-    file_tags = [
-        os.path.split(os.path.split(fp)[0])[-1] for fp in files
-    ]
+    os.makedirs(os.path.join('datasets', args.split), exist_ok=True)
+
+    ## sample and save
+    for tag, mesh in tqdm(zip(tags, meshes), 'sampling', total=len(tags)):
+        ds_path = os.path.join('datasets', args.split, tag) + '.mat'
+        
+        if args.skip and os.path.isfile(ds_path):
+            logger.info(f'SKIP {tag}')
+            continue
+        
+        samples = sample_dataset(mesh, args.sample_nums)
+    
+        logger.info(f'SUCCESS {tag} with {samples.shape[0]} samples')
+        
+        savemat(ds_path, {'ray_depth': samples})
+        
+        gc.collect()
+
+    ## save split
     with open(os.path.join('split', args.target, args.split)+'.txt', 'w') as ofh:
-        ofh.write('\n'.join(file_tags))
+        ofh.write('\n'.join(tags))
+
+    logger.info(f'> FINISH <')

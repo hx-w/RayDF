@@ -18,14 +18,16 @@ class RayDepthDataset(Dataset):
 
         samples = loadmat(mat_path)['ray_depth']
         
-        sub = samples[samples[:, -1] < 2]
-        gt1 = sub[sub[:, -1] > 0.5]
-        gt1[:, :3] = gt1[:, :3] + 0.5 * gt1[:, 3:-1]
-        gt1[:, -1:] = gt1[:, -1:] - 0.5
+        thred = 0.3
         
-        lt1 = sub[sub[:, -1] < 0.5]
-        lt1[:, :3] = lt1[:, :3] - 0.5 * lt1[:, 3:-1]
-        lt1[:, -1:] = lt1[:, -1:] + 0.5
+        sub = samples[samples[:, -1] < 2]
+        gt1 = sub[sub[:, -1] > thred]
+        gt1[:, :3] = gt1[:, :3] + thred * gt1[:, 3:-1]
+        gt1[:, -1:] = gt1[:, -1:] - thred
+        
+        lt1 = sub[sub[:, -1] < thred]
+        lt1[:, :3] = lt1[:, :3] - thred * lt1[:, 3:-1]
+        lt1[:, -1:] = lt1[:, -1:] + thred
         
         samples = np.concatenate([samples, gt1, lt1], axis=0)
         

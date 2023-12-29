@@ -13,7 +13,7 @@ import trimesh
 from depth_visual import generate_scan, generate_inference_by_rays
 import preprocess as prep
 
-radius = 0.5
+radius = 1.3
 def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_checkpoint, model_dir, loss_schedules=None, is_train=True, **kwargs):
     print('Training Info:')
     print('data_path:\t\t',kwargs['mat_path'])
@@ -50,10 +50,10 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
     with tqdm(total=len(train_dataloader) * epochs) as pbar:
         train_losses = []
         for epoch in range(epochs):
-            if not epoch % epochs_til_checkpoint and epoch:
+            # if not epoch % epochs_til_checkpoint and epoch:
 
-                if is_train:
-                    torch.save(model.module.state_dict(), os.path.join(checkpoints_dir, 'model_epoch_%04d.pth' % epoch))
+            #     if is_train:
+            #         torch.save(model.module.state_dict(), os.path.join(checkpoints_dir, 'model_epoch_%04d.pth' % epoch))
 
             for step, (model_input, gt) in enumerate(train_dataloader):
                 start_time = time.time()
@@ -109,8 +109,8 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
             gc.collect()
 
         if is_train:
-            torch.save(model.module.cpu().state_dict(),
-                       os.path.join(checkpoints_dir, 'model_final.pth'))
+            pass
+            # torch.save(model.module.cpu().state_dict(), os.path.join(checkpoints_dir, 'model_final.pth'))
         else:
             generate_scan(
                 cam_pos=np.array([radius, 0.0, 0.0]),
@@ -138,19 +138,35 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
             )
 
             # reconstruct pointcloud
-            counts = 30000            
+            counts = 10000            
             in_ball_cam_pos_1 = prep.sample_uniform_points_in_unit_sphere(counts)
             in_ball_cam_pos_2 = prep.sample_uniform_points_in_unit_sphere(counts)
             free_dir = in_ball_cam_pos_2 - in_ball_cam_pos_1
             free_dir /= np.linalg.norm(free_dir, axis=1)[:, np.newaxis]
-            free_ori = in_ball_cam_pos_1 * 0.5
-            
-            rays = np.concatenate([free_ori, free_dir], axis=1)
-            t_samples = generate_inference_by_rays(rays, model, embedding)
+            free_ori = in_ball_cam_pos_1 * radius
 
-            t_samples = t_samples[t_samples[:, -1] < 1.5]
-            coords, dirs, depth = t_samples[:, :3], t_samples[:, 3:-1], t_samples[:, -1].reshape(-1, 1)
+            rays = np.concatenate([free_ori, free_dir], axis=1)
+
+            points = []
+            thred  = 0.3
             
-            points = coords + dirs * depth
+            for _ in range(3):
+                samples = generate_inference_by_rays(rays, model, embedding)
+                samples = samples[samples[:, -1] < 1.9]
+                
+                valid_samples = samples[samples[:, -1] <= thred]
+                other_samples = samples[samples[:, -1] > thred]
+                
+                rays = other_samples[:, :-1]
+                rays[:, :3] = rays[:, :3] + thred * rays[:, 3:]
+                
+                points.append(valid_samples[:, :3] + valid_samples[:, 3:-1] * valid_samples[:, -1].reshape(-1, 1))                
+
+                if rays.shape[0] < 10:
+                    break
             
+            points.append(other_samples[:, :3] + other_samples[:, 3:-1] * other_samples[:, -1].reshape(-1, 1))
+            
+            points = np.concatenate(points, axis=0)
+
             trimesh.PointCloud(points).export(os.path.join(checkpoints_dir, 'test.ply'))
