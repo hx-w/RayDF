@@ -10,10 +10,10 @@ from tqdm.autonotebook import tqdm
 import numpy as np
 import trimesh
 
-from depth_visual import generate_scan, generate_inference_by_rays
+from depth_visual import generate_scan, generate_inference_by_rays, recurv_inference_by_rays
 import preprocess as prep
 
-radius = 1.3
+radius = 1.5
 def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_checkpoint, model_dir, loss_schedules=None, is_train=True, **kwargs):
     print('Training Info:')
     print('data_path:\t\t',kwargs['mat_path'])
@@ -138,7 +138,7 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
             )
 
             # reconstruct pointcloud
-            counts = 10000            
+            counts = 50000            
             in_ball_cam_pos_1 = prep.sample_uniform_points_in_unit_sphere(counts)
             in_ball_cam_pos_2 = prep.sample_uniform_points_in_unit_sphere(counts)
             free_dir = in_ball_cam_pos_2 - in_ball_cam_pos_1
@@ -147,26 +147,11 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
 
             rays = np.concatenate([free_ori, free_dir], axis=1)
 
-            points = []
-            thred  = 0.3
+            depth = recurv_inference_by_rays(rays, model, embedding, stack_depth=0)
             
-            for _ in range(3):
-                samples = generate_inference_by_rays(rays, model, embedding)
-                samples = samples[samples[:, -1] < 1.9]
-                
-                valid_samples = samples[samples[:, -1] <= thred]
-                other_samples = samples[samples[:, -1] > thred]
-                
-                rays = other_samples[:, :-1]
-                rays[:, :3] = rays[:, :3] + thred * rays[:, 3:]
-                
-                points.append(valid_samples[:, :3] + valid_samples[:, 3:-1] * valid_samples[:, -1].reshape(-1, 1))                
-
-                if rays.shape[0] < 10:
-                    break
+            samples = np.concatenate([rays, depth], axis=1)
             
-            points.append(other_samples[:, :3] + other_samples[:, 3:-1] * other_samples[:, -1].reshape(-1, 1))
-            
-            points = np.concatenate(points, axis=0)
+            samples = samples[samples[:, -1] < 2.]
+            points = samples[:, :3] + samples[:, -1:] * samples[:, 3:-1]
 
             trimesh.PointCloud(points).export(os.path.join(checkpoints_dir, 'test.ply'))

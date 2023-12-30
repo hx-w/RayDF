@@ -37,6 +37,8 @@ def generate_inference_by_rays(rays: np.array, model, embedding=None):
             .squeeze(1).detach().cpu().numpy().reshape((-1, 1))
         )
     
+    depth[depth[:, 0:] > 1.9] = 2.
+    
     return np.concatenate([rays, depth], axis=1)
     
 
@@ -52,27 +54,12 @@ def generate_scan(cam_pos: np.array, cam_dir: np.array, model, resol: int, filen
  
     rays = get_pinhole_rays(cam_pos, cam_dir, resol) # (n, 6)
     
-    # to theta, phi
-    inp_dirs = np.zeros(shape=(pixel_num, 2))
-    inp_dirs[:, 0] = np.arctan2(rays[:, 4], rays[:, 3])
-    inp_dirs[:, 1] = np.arccos(rays[:, 5])
+    # inp_coords = torch.from_numpy(rays[:, :3]).reshape((1, pixel_num, 3))
+    # inp_dirs = torch.from_numpy(rays[:, 3:]).reshape((1, pixel_num, 3))
     
-    inp_coords = torch.from_numpy(rays[:, :3]).reshape((1, pixel_num, 3)).cuda().float()
-    # inp_dirs = torch.from_numpy(inp_dirs).reshape((1, pixel_num, 2)).cuda().float()
-    inp_dirs = torch.from_numpy(rays[:, 3:]).reshape((1, pixel_num, 3)).cuda().float()
+    depth = recurv_inference_by_rays(rays, model, embedding)
+    depth_mat = depth.reshape((resol, resol))
     
-    if embedding is not None:
-        depth_mat = (
-            model.inference(inp_coords, inp_dirs, embedding)
-            .squeeze(1).detach().cpu().numpy().reshape((resol, resol))
-        )
-    else:
-        depth_mat = (
-            model.get_template_field(inp_coords, inp_dirs)
-            .squeeze(1).detach().cpu().numpy().reshape((resol, resol))
-        )
-
-    # print(depth_mat)
     style = 'gray'
     # plt.figure(figsize = (50, 50))
     htmap = sns.heatmap(depth_mat, cmap=style, cbar=False, xticklabels=False, yticklabels=False)
@@ -88,3 +75,24 @@ def generate_scan(cam_pos: np.array, cam_dir: np.array, model, resol: int, filen
     
     plt.close()
     return image_array
+
+def recurv_inference_by_rays(rays: np.array, model, embedding=None, thred: float=.3, stack_depth: int=0):
+    depth = np.zeros(shape=(rays.shape[0], 1))
+    
+    samples = generate_inference_by_rays(rays, model, embedding)
+    
+    depth[samples[:, -1] >= 2.] = 2.
+    depth[samples[:, -1] <= thred] = samples[samples[:, -1] <= thred][:, -1:]
+    
+    recurv_ind = np.logical_and(samples[:, -1] < 2., samples[:, -1] > thred)
+    depth[recurv_ind] = thred
+    
+    if samples[recurv_ind].shape[0] > 0:
+        sub_rays = rays[recurv_ind]
+        sub_rays[:, :3] += thred * sub_rays[:, 3:]
+        # print(f'recurv: {stack_depth} | {rays.shape[0]} => {sub_rays.shape[0]} with min {samples[recurv_ind][:, -1].min()}')
+        depth[recurv_ind] += recurv_inference_by_rays(sub_rays, model, embedding, stack_depth=stack_depth+1)
+    
+    depth[depth[:, 0] > 2.] = 2.
+
+    return depth

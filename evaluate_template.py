@@ -11,12 +11,12 @@ import numpy as np
 
 import torch
 from networks.RayDFNet import RayDistanceField
-from depth_visual import generate_scan, generate_inference_by_rays
+from depth_visual import generate_scan, recurv_inference_by_rays
 import preprocess as prep
 
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
-radius = 0.5
+radius = 1.3
 
 p = configargparse.ArgumentParser()
 
@@ -65,17 +65,19 @@ generate_scan(
 
 
 # reconstruct pointcloud
-counts = 30000            
+counts = 50000            
 in_ball_cam_pos_1 = prep.sample_uniform_points_in_unit_sphere(counts)
 in_ball_cam_pos_2 = prep.sample_uniform_points_in_unit_sphere(counts)
 free_dir = in_ball_cam_pos_2 - in_ball_cam_pos_1
 free_dir /= np.linalg.norm(free_dir, axis=1)[:, np.newaxis]
-free_ori = in_ball_cam_pos_1 * 0.5
+free_ori = in_ball_cam_pos_1 * 1.3
 
 rays = np.concatenate([free_ori, free_dir], axis=1)
-t_samples = generate_inference_by_rays(rays, model)
+depth = recurv_inference_by_rays(rays, model)
+# t_samples = generate_inference_by_rays(rays, model)
+t_samples = np.concatenate([rays, depth], axis=1)
 
-t_samples = t_samples[t_samples[:, -1] < 1.0]
+t_samples = t_samples[t_samples[:, -1] < 2.0]
 coords, dirs, depth = t_samples[:, :3], t_samples[:, 3:-1], t_samples[:, -1].reshape(-1, 1)
 
 points = coords + dirs * depth

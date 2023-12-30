@@ -10,6 +10,7 @@ from torch.utils.data import Dataset
 from scipy.io import loadmat
 
 
+
 class RayDepthDataset(Dataset):
     def __init__(self, mat_path, batch_max, instance_idx=None):
         super().__init__()
@@ -18,23 +19,34 @@ class RayDepthDataset(Dataset):
 
         samples = loadmat(mat_path)['ray_depth']
         
-        thred = 0.3
-        
-        sub = samples[samples[:, -1] < 2]
-        gt1 = sub[sub[:, -1] > thred]
-        gt1[:, :3] = gt1[:, :3] + thred * gt1[:, 3:-1]
-        gt1[:, -1:] = gt1[:, -1:] - thred
-        
-        lt1 = sub[sub[:, -1] < thred]
-        lt1[:, :3] = lt1[:, :3] - thred * lt1[:, 3:-1]
-        lt1[:, -1:] = lt1[:, -1:] + thred
-        
-        samples = np.concatenate([samples, gt1, lt1], axis=0)
+        samples = self._enhance_dataset(samples)
         
         self.coords = samples[:, :3]
         self.dirs = samples[:, 3:-1]
         self.depth = samples[:, -1:]
         self.batch_max = batch_max
+
+    def _enhance_dataset(self, samples: np.array) -> np.array:
+        thred = 0.3
+        sub = samples[samples[:, -1] < 2.]
+        addons = []
+        iter_gt = 0
+        
+        sub_gt = sub[sub[:, -1] > thred]
+        while sub_gt.shape[0] > 0:
+            sub_gt[:, :3] = sub_gt[:, :3] + thred * sub_gt[:, 3:-1]
+            sub_gt[:, -1:] = sub_gt[:, -1:] - thred
+        
+            addons.append(sub_gt)
+            sub_gt = sub_gt[sub_gt[:, -1] > thred]
+            iter_gt += 1
+        
+        addons = np.concatenate(addons, axis=0)
+        
+        print(f'>> enhance with iter {iter_gt}, add new samples {addons.shape[0]}')
+        
+        return np.concatenate([addons, samples], axis=0)
+
 
     def __len__(self):
         return self.coords.shape[0] // self.batch_max
