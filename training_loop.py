@@ -116,7 +116,7 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
                 cam_pos=np.array([radius, 0.0, 0.0]),
                 cam_dir=np.array([-radius, 0.0, 0.0]),
                 model=model,
-                resol=256,
+                resol=512,
                 filename=os.path.join(checkpoints_dir, 'test_X.png'),
                 embedding=embedding
             )
@@ -124,7 +124,7 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
                 cam_pos=np.array([0.0, radius, 0.0]),
                 cam_dir=np.array([0.0, -radius, 0.0]),
                 model=model,
-                resol=256,
+                resol=512,
                 filename=os.path.join(checkpoints_dir, 'test_Y.png'),
                 embedding=embedding
             )
@@ -132,7 +132,7 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
                 cam_pos=np.array([0.0, 0.0, radius]),
                 cam_dir=np.array([0.0, 0.0, -radius]),
                 model=model,
-                resol=256,
+                resol=512,
                 filename=os.path.join(checkpoints_dir, 'test_Z.png'),
                 embedding=embedding
             )
@@ -147,7 +147,7 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
 
             rays = np.concatenate([free_ori, free_dir], axis=1)
 
-            depth = recurv_inference_by_rays(rays, model, embedding, stack_depth=0)
+            depth = recurv_inference_by_rays(rays, model, embedding, thred=0.2, stack_depth=0)
             
             samples = np.concatenate([rays, depth], axis=1)
             

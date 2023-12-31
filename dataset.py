@@ -27,7 +27,7 @@ class RayDepthDataset(Dataset):
         self.batch_max = batch_max
 
     def _enhance_dataset(self, samples: np.array) -> np.array:
-        thred = 0.3
+        thred = 0.2
         sub = samples[samples[:, -1] < 2.]
         addons = []
         iter_gt = 0

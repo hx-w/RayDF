@@ -10,3 +10,4 @@ static/
 hide_*
 experiments/
 viewports/
+test/output/*.png

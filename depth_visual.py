@@ -6,6 +6,8 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import open3d as o3d
 import open3d.core as o3c
+import matplotlib.cm as cm
+from matplotlib.colors import Normalize
 
 
 def get_pinhole_rays(cam_pos: np.array, cam_dir: np.array, resol: int):
@@ -48,32 +50,44 @@ def generate_inference(cam_pos: np.array, cam_dir: np.array, model, resol: int, 
     return generate_inference_by_rays(rays, model, embedding)
     
 
-def generate_scan(cam_pos: np.array, cam_dir: np.array, model, resol: int, filename: str=None, embedding=None):
+def generate_scan(cam_pos: np.array, cam_dir: np.array, model, resol: int, filename: str=None, embedding=None, methods: list=['recursive', 'raw']):
 
-    pixel_num = resol * resol
- 
     rays = get_pinhole_rays(cam_pos, cam_dir, resol) # (n, 6)
     
     # inp_coords = torch.from_numpy(rays[:, :3]).reshape((1, pixel_num, 3))
     # inp_dirs = torch.from_numpy(rays[:, 3:]).reshape((1, pixel_num, 3))
-    
-    depth = recurv_inference_by_rays(rays, model, embedding)
-    depth_mat = depth.reshape((resol, resol))
-    
-    style = 'gray'
-    # plt.figure(figsize = (50, 50))
-    htmap = sns.heatmap(depth_mat, cmap=style, cbar=False, xticklabels=False, yticklabels=False)
-    
-    if filename is not None:
-        htmap.get_figure().savefig(filename, pad_inches=False, bbox_inches='tight')
-        return
+    image_arrs = []
+    for mtd in methods:
+        if mtd == 'recursive':
+            depth = recurv_inference_by_rays(rays, model, embedding)
+        elif mtd == 'raw':
+            depth = generate_inference_by_rays(rays, model, embedding)[:, -1]
+        else:
+            raise ValueError(f'Not a valid method: {mtd}')
 
-    canvas = htmap.get_figure().canvas
-    width, height = canvas.get_width_height()
-    image_array = np.frombuffer(canvas.tostring_rgb(), dtype='uint8')
-    image_array = image_array.reshape(height, width, 3)
+        depth_mat = depth.reshape((resol, resol))
+        
+        style = 'viridis'
+        # plt.figure(figsize = (50, 50))
+        htmap = sns.heatmap(depth_mat, cmap=style, cbar=False, xticklabels=False, yticklabels=False)
+        
+        if filename is not None:
+            htmap.get_figure().savefig(filename.replace('.png', f'_{mtd}.png'), pad_inches=False, bbox_inches='tight')
+            # continue
+
+        norm = Normalize()
+        cmap = cm.get_cmap(style)
+        image_arrs.append(cmap(norm(depth_mat))[:, :, :3])
+        # canvas = htmap.get_figure().canvas
+        # width, height = canvas.get_width_height()
+        # image_array = np.frombuffer(canvas.tostring_rgb(), dtype='uint8')
+        # image_arrs.append(image_array.reshape(height, width, 3))
+        
+        plt.close()
     
-    plt.close()
+    
+    image_array = np.concatenate(image_arrs, axis=1)
+    
     return image_array
 
 def recurv_inference_by_rays(rays: np.array, model, embedding=None, thred: float=.3, stack_depth: int=0):
@@ -91,7 +105,7 @@ def recurv_inference_by_rays(rays: np.array, model, embedding=None, thred: float
         sub_rays = rays[recurv_ind]
         sub_rays[:, :3] += thred * sub_rays[:, 3:]
         # print(f'recurv: {stack_depth} | {rays.shape[0]} => {sub_rays.shape[0]} with min {samples[recurv_ind][:, -1].min()}')
-        depth[recurv_ind] += recurv_inference_by_rays(sub_rays, model, embedding, stack_depth=stack_depth+1)
+        depth[recurv_ind] += recurv_inference_by_rays(sub_rays, model, embedding, thred, stack_depth=stack_depth+1)
     
     depth[depth[:, 0] > 2.] = 2.
 

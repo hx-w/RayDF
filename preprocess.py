@@ -69,7 +69,7 @@ def load_and_unify(mesh_paths: List[str], scale_factor: float=0.0) -> Tuple[trim
         max_scale = scale_factor
     else:
         # max / 2
-        max_scale = 0.8 * np.max([np.linalg.norm(mesh.vertices, axis=1).max() for mesh in meshes]) / 2.
+        max_scale = 1.2 * np.max([np.linalg.norm(mesh.vertices, axis=1).max() for mesh in meshes]) / 2.
 
     logger.info(f'max scale: {max_scale:.6f}')
 
@@ -120,7 +120,7 @@ def generate_sample_rays(mesh: trimesh.Trimesh, counts: int, radius: float=1.3, 
         each_free_dirs = sample_sphere_directions(each_free_count)
         
         surf_rays.append(np.concatenate([
-            np.tile(on_surf_point, (each_free_count, 1)) - each_free_dirs * 1.0, each_free_dirs
+            np.tile(on_surf_point, (each_free_count, 1)) - each_free_dirs * 1., each_free_dirs
         ], axis=1))
         
     surf_rays = np.concatenate(surf_rays, axis=0)
