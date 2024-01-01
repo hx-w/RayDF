@@ -22,6 +22,9 @@ from networks.RayDFNet import RayDistanceField
 from networks.ODFNet import OmniDistanceField
 # from calculate_chamfer_distance import compute_recon_error
 
+import neural_render as nrender
+
+
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
 p = configargparse.ArgumentParser()
@@ -62,6 +65,11 @@ os.makedirs(root_path, exist_ok=True)
 with open(meta_params['eval_split'],'r') as file:
     all_names = file.read().split('\n')
 
+impl_scene = nrender.ImplicitScene()
+model_name = meta_params['experiment_name']
+
+displace = 0
+
 # optimize latent code for each test subject
 for file in all_names:
     save_path = os.path.join(root_path, file)
@@ -73,7 +81,21 @@ for file in all_names:
     dataloader = DataLoader(sdf_dataset, shuffle=True, collate_fn=sdf_dataset.collate_fn, batch_size=meta_params['batch_size'], num_workers=0, drop_last=True)
 
     # shape embedding
-    training_loop.train(model=model, train_dataloader=dataloader, model_dir=save_path, is_train=False, **meta_params)
+    latent = training_loop.train(model=model, train_dataloader=dataloader, model_dir=save_path, is_train=False, **meta_params)
+
+    impl_scene.add_drawable(model_name, model, latent, Mtrans=[0., 0., displace * ((-1) ** (displace % 2))])
+
+    displace += 1
+
+
+nrender.render_tour_video(
+    os.path.join(root_path, f'blend_{model_name}.mp4'),
+    impl_scene,
+    FPS=10,
+    resol=1024,
+    frames=60,
+    view_radius=displace+1.5
+)
 
 # calculate chamfer distance for each subject
 # chamfer_dist = []

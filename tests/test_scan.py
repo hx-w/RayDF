@@ -103,7 +103,7 @@ if __name__ == '__main__':
         depth_raw = prep.generate_sample_depth(scene, rays)
         
         def _save_heatmap(mat: np.array, path: str):
-            style = 'viridis'
+            style = 'gray_r'
             cmap = sns.cubehelix_palette(start=0.0, gamma=0.8, as_cmap=True)
 
             htmap = sns.heatmap(mat, cmap=style, cbar=True, xticklabels=False, yticklabels=False)

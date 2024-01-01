@@ -11,6 +11,7 @@ import open3d.core as o3c
 import matplotlib.cm as cm
 from matplotlib.colors import Normalize
 from tqdm import tqdm
+import preprocess as prep
 
 
 def get_equidistant_camera_angles(count):
@@ -19,6 +20,7 @@ def get_equidistant_camera_angles(count):
 
     for i in range(count):
         phi = np.arcsin(-1 + 2 * i / (count - 1))
+        phi = 0.
         theta = ((i + 1) * increment) % (2 * np.pi)
         
         yield np.array([np.sin(theta) * np.cos(phi), np.sin(theta) * np.sin(phi), np.cos(theta)])   
@@ -187,7 +189,7 @@ def filter_rays_with_sphere(rays: np.array, c: np.array=np.zeros(shape=(3,), dty
 def generate_scan_super(cam_pos: np.array, cam_dir: np.array, model, resol: int, filename: str=None, embedding=None, methods: list=['recursive', 'raw']):
     rays = get_pinhole_rays(cam_pos, cam_dir, resol) # (n, 6)
     
-    ray_ts = filter_rays_with_sphere(rays, r=1.3)
+    ray_ts = filter_rays_with_sphere(rays, r=1.2)
     rays[:, :3] = ray_ts[:, :3]
     
     # inp_coords = torch.from_numpy(rays[:, :3]).reshape((1, pixel_num, 3))
@@ -208,7 +210,7 @@ def generate_scan_super(cam_pos: np.array, cam_dir: np.array, model, resol: int,
         depth_mat = depth.reshape((resol, resol))
         depth_mat[depth_mat == np.inf] = 0.
         
-        style = 'gray'
+        style = 'gray_r'
         # plt.figure(figsize = (50, 50))
         htmap = sns.heatmap(depth_mat, cmap=style, cbar=False, xticklabels=False, yticklabels=False)
         
@@ -254,8 +256,8 @@ def generate_tour_video_super(model, radius: float, FPS: int, frames: int, resol
             
             mat[mat >= np.inf] = 0.
 
-            style = 'gray'
-            cmap = sns.cubehelix_palette(start=0.0, gamma=0.8, as_cmap=True)
+            style = 'gray_r'
+            # cmap = sns.cubehelix_palette(start=0.0, gamma=0.8, as_cmap=True)
             
             norm = Normalize()
             cmap = cm.get_cmap(style)
@@ -269,6 +271,30 @@ def generate_tour_video_super(model, radius: float, FPS: int, frames: int, resol
         video_writer.release()
         cv2.destroyAllWindows()
 
+def generate_pointcloud_super(model, counts: int, radius: float, embedding=None, filter_=True):
+    in_ball_cam_pos_1 = prep.sample_uniform_points_in_unit_sphere(counts)
+    in_ball_cam_pos_2 = prep.sample_uniform_points_in_unit_sphere(counts)
+    free_dir = in_ball_cam_pos_2 - in_ball_cam_pos_1
+    free_dir /= np.linalg.norm(free_dir, axis=1)[:, np.newaxis]
+    free_ori = in_ball_cam_pos_1 * radius
+
+    rays = np.concatenate([free_ori, free_dir], axis=1)
+
+    depth = recurv_inference_by_rays(rays, model, embedding, thred=0.2, stack_depth=0)
+    
+    samples = np.concatenate([rays, depth], axis=1)
+    
+    samples = samples[samples[:, -1] < 2.]
+    points = samples[:, :3] + samples[:, -1:] * samples[:, 3:-1]
+
+    if not filter_:
+        return points
+
+    ## filter
+    
+    ##
+
+    return points
 
 if __name__ == '__main__':
     rays = get_pinhole_rays(np.array([-2., 0, 0]), np.array([2, 0, 0]), 256)

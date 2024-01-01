@@ -10,7 +10,7 @@ from tqdm.autonotebook import tqdm
 import numpy as np
 import trimesh
 
-from utils import generate_scan_super, recurv_inference_by_rays, generate_tour_video_super
+import utils
 import preprocess as prep
 
 radius = 1.8
@@ -83,9 +83,9 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
                 if not total_steps % steps_til_summary:
                     if is_train:
                         if kwargs['net'] == 'RayDistanceField':
-                            temp_slice_to_X = generate_scan_super(cam_pos=np.array([radius, 0.0, 0.0]), cam_dir=np.array([-radius, 0.0, 0.0]), model=model.module, resol=256)
-                            temp_slice_to_Y = generate_scan_super(cam_pos=np.array([0.0, radius, 0.0]), cam_dir=np.array([0.0, -radius, 0.0]), model=model.module, resol=256)
-                            temp_slice_to_Z = generate_scan_super(cam_pos=np.array([0.0, 0.0, radius]), cam_dir=np.array([0.0, 0.0, -radius]), model=model.module, resol=256)
+                            temp_slice_to_X = utils.generate_scan_super(cam_pos=np.array([radius, 0.0, 0.0]), cam_dir=np.array([-radius, 0.0, 0.0]), model=model.module, resol=256)
+                            temp_slice_to_Y = utils.generate_scan_super(cam_pos=np.array([0.0, radius, 0.0]), cam_dir=np.array([0.0, -radius, 0.0]), model=model.module, resol=256)
+                            temp_slice_to_Z = utils.generate_scan_super(cam_pos=np.array([0.0, 0.0, radius]), cam_dir=np.array([0.0, 0.0, -radius]), model=model.module, resol=256)
                             writer.add_image('template_to_X', temp_slice_to_X, total_steps, dataformats='HWC')
                             writer.add_image('template_to_Y', temp_slice_to_Y, total_steps, dataformats='HWC')
                             writer.add_image('template_to_Z', temp_slice_to_Z, total_steps, dataformats='HWC')
@@ -113,7 +113,7 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
             # torch.save(model.module.cpu().state_dict(), os.path.join(checkpoints_dir, 'model_final.pth'))
         else:
             tag = model_dir.split(os.sep)[-1]
-            generate_scan_super(
+            utils.generate_scan_super(
                 cam_pos=np.array([radius, 0.0, 0.0]),
                 cam_dir=np.array([-radius, 0.0, 0.0]),
                 model=model,
@@ -121,7 +121,7 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
                 filename=os.path.join(checkpoints_dir, f'{tag}_X.png'),
                 embedding=embedding
             )
-            generate_scan_super(
+            utils.generate_scan_super(
                 cam_pos=np.array([0.0, radius, 0.0]),
                 cam_dir=np.array([0.0, -radius, 0.0]),
                 model=model,
@@ -129,7 +129,7 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
                 filename=os.path.join(checkpoints_dir, f'{tag}_Y.png'),
                 embedding=embedding
             )
-            generate_scan_super(
+            utils.generate_scan_super(
                 cam_pos=np.array([0.0, 0.0, radius]),
                 cam_dir=np.array([0.0, 0.0, -radius]),
                 model=model,
@@ -137,27 +137,15 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
                 filename=os.path.join(checkpoints_dir, f'{tag}_Z.png'),
                 embedding=embedding
             )
-            generate_tour_video_super(
-                model, radius=2., FPS=24, frames=60, resol=512,
+            
+            utils.generate_tour_video_super(
+                model, radius=2., FPS=24, frames=90, resol=512,
                 embedding=embedding,
                 filename=os.path.join(checkpoints_dir, f'{tag}.mp4')
             )
 
             # reconstruct pointcloud
-            counts = 50000            
-            in_ball_cam_pos_1 = prep.sample_uniform_points_in_unit_sphere(counts)
-            in_ball_cam_pos_2 = prep.sample_uniform_points_in_unit_sphere(counts)
-            free_dir = in_ball_cam_pos_2 - in_ball_cam_pos_1
-            free_dir /= np.linalg.norm(free_dir, axis=1)[:, np.newaxis]
-            free_ori = in_ball_cam_pos_1 * radius
-
-            rays = np.concatenate([free_ori, free_dir], axis=1)
-
-            depth = recurv_inference_by_rays(rays, model, embedding, thred=0.2, stack_depth=0)
-            
-            samples = np.concatenate([rays, depth], axis=1)
-            
-            samples = samples[samples[:, -1] < 2.]
-            points = samples[:, :3] + samples[:, -1:] * samples[:, 3:-1]
-
+            points = utils.generate_pointcloud_super(model, 50000, radius=1.3, embedding=embedding, filter_=True)
             trimesh.PointCloud(points).export(os.path.join(checkpoints_dir, f'{tag}.ply'))
+
+            return embedding

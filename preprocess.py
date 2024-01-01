@@ -101,7 +101,7 @@ on_mesh_nums 为网格离散点个数
 def generate_sample_rays(mesh: trimesh.Trimesh, counts: int, radius: float=1.3, on_mesh_nums: int=8000) -> np.array:
     free_count = int(0.4 * counts)
     surf_count = int(0.4 * counts)
-    sphere_count = counts - free_count - surf_count
+    sphere_count = 2 * (counts - free_count - surf_count)
     
     ## freespace
     in_ball_cam_pos_1 = sample_uniform_points_in_unit_sphere(free_count)
