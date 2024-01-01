@@ -5,9 +5,10 @@
 
 import os
 from typing import List, Tuple
-import configargparse
+import math
 
 import trimesh
+import configargparse
 import numpy as np
 from glob import glob
 import open3d as o3d
@@ -18,10 +19,9 @@ import matplotlib.cm as cm
 from matplotlib.colors import Normalize
 
 import preprocess as prep
-import depth_visual as dv
+import utils as dv
 
 logger = prep.logger
-
 
 def generate_sample_depth_recursive(scene: o3d.t.geometry.RaycastingScene, rays: np.array, thred: float=0.3, stack_depth: int=0) -> np.array:
 
@@ -41,7 +41,7 @@ def generate_sample_depth_recursive(scene: o3d.t.geometry.RaycastingScene, rays:
         # print(f'recurv: {stack_depth} | {rays.shape[0]} => {sub_rays.shape[0]} with min {samples[recurv_ind][:, -1].min()}')
         depth[recurv_ind] += generate_sample_depth_recursive(scene, sub_rays, thred, stack_depth+1)
     
-    depth[depth[:, 0] > 2.] = 2.
+    depth[depth[:, 0] >= 2.] = np.inf
 
     return depth
 
@@ -58,7 +58,7 @@ def load_and_unify(mesh_paths: List[str], scale_factor: float=0.0) -> Tuple[trim
         max_scale = scale_factor
     else:
         # max / 2
-        max_scale = 1.2 * np.max([np.linalg.norm(mesh.vertices, axis=1).max() for mesh in meshes]) / 2.
+        max_scale = 1. * np.max([np.linalg.norm(mesh.vertices, axis=1).max() for mesh in meshes])
 
     logger.info(f'max scale: {max_scale:.6f}')
 
@@ -91,7 +91,7 @@ if __name__ == '__main__':
 
     ## sample and save
     for tag, mesh in tqdm(zip(tags, meshes), 'sampling', total=len(tags)):
-        png_path = os.path.join('test/output', f'{tag}')
+        png_path = os.path.join('tests/output', f'{tag}')
         
         scene = o3d.t.geometry.RaycastingScene()
         scene.add_triangles(o3d.t.geometry.TriangleMesh.from_legacy(mesh.as_open3d))

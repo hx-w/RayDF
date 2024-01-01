@@ -10,10 +10,10 @@ from tqdm.autonotebook import tqdm
 import numpy as np
 import trimesh
 
-from depth_visual import generate_scan, generate_inference_by_rays, recurv_inference_by_rays
+from utils import generate_scan_super, recurv_inference_by_rays, generate_tour_video_super
 import preprocess as prep
 
-radius = 1.5
+radius = 1.8
 def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_checkpoint, model_dir, loss_schedules=None, is_train=True, **kwargs):
     print('Training Info:')
     print('data_path:\t\t',kwargs['mat_path'])
@@ -83,9 +83,9 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
                 if not total_steps % steps_til_summary:
                     if is_train:
                         if kwargs['net'] == 'RayDistanceField':
-                            temp_slice_to_X = generate_scan(cam_pos=np.array([radius, 0.0, 0.0]), cam_dir=np.array([-radius, 0.0, 0.0]), model=model.module, resol=256)
-                            temp_slice_to_Y = generate_scan(cam_pos=np.array([0.0, radius, 0.0]), cam_dir=np.array([0.0, -radius, 0.0]), model=model.module, resol=256)
-                            temp_slice_to_Z = generate_scan(cam_pos=np.array([0.0, 0.0, radius]), cam_dir=np.array([0.0, 0.0, -radius]), model=model.module, resol=256)
+                            temp_slice_to_X = generate_scan_super(cam_pos=np.array([radius, 0.0, 0.0]), cam_dir=np.array([-radius, 0.0, 0.0]), model=model.module, resol=256)
+                            temp_slice_to_Y = generate_scan_super(cam_pos=np.array([0.0, radius, 0.0]), cam_dir=np.array([0.0, -radius, 0.0]), model=model.module, resol=256)
+                            temp_slice_to_Z = generate_scan_super(cam_pos=np.array([0.0, 0.0, radius]), cam_dir=np.array([0.0, 0.0, -radius]), model=model.module, resol=256)
                             writer.add_image('template_to_X', temp_slice_to_X, total_steps, dataformats='HWC')
                             writer.add_image('template_to_Y', temp_slice_to_Y, total_steps, dataformats='HWC')
                             writer.add_image('template_to_Z', temp_slice_to_Z, total_steps, dataformats='HWC')
@@ -112,29 +112,35 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
             pass
             # torch.save(model.module.cpu().state_dict(), os.path.join(checkpoints_dir, 'model_final.pth'))
         else:
-            generate_scan(
+            tag = model_dir.split(os.sep)[-1]
+            generate_scan_super(
                 cam_pos=np.array([radius, 0.0, 0.0]),
                 cam_dir=np.array([-radius, 0.0, 0.0]),
                 model=model,
                 resol=512,
-                filename=os.path.join(checkpoints_dir, 'test_X.png'),
+                filename=os.path.join(checkpoints_dir, f'{tag}_X.png'),
                 embedding=embedding
             )
-            generate_scan(
+            generate_scan_super(
                 cam_pos=np.array([0.0, radius, 0.0]),
                 cam_dir=np.array([0.0, -radius, 0.0]),
                 model=model,
                 resol=512,
-                filename=os.path.join(checkpoints_dir, 'test_Y.png'),
+                filename=os.path.join(checkpoints_dir, f'{tag}_Y.png'),
                 embedding=embedding
             )
-            generate_scan(
+            generate_scan_super(
                 cam_pos=np.array([0.0, 0.0, radius]),
                 cam_dir=np.array([0.0, 0.0, -radius]),
                 model=model,
                 resol=512,
-                filename=os.path.join(checkpoints_dir, 'test_Z.png'),
+                filename=os.path.join(checkpoints_dir, f'{tag}_Z.png'),
                 embedding=embedding
+            )
+            generate_tour_video_super(
+                model, radius=2., FPS=24, frames=60, resol=512,
+                embedding=embedding,
+                filename=os.path.join(checkpoints_dir, f'{tag}.mp4')
             )
 
             # reconstruct pointcloud
@@ -154,4 +160,4 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
             samples = samples[samples[:, -1] < 2.]
             points = samples[:, :3] + samples[:, -1:] * samples[:, 3:-1]
 
-            trimesh.PointCloud(points).export(os.path.join(checkpoints_dir, 'test.ply'))
+            trimesh.PointCloud(points).export(os.path.join(checkpoints_dir, f'{tag}.ply'))

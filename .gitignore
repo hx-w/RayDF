@@ -10,4 +10,5 @@ static/
 hide_*
 experiments/
 viewports/
-test/output/*.png
+tests/output/*.png
+tests/output/*.mp4

@@ -11,7 +11,7 @@ import numpy as np
 
 import torch
 from networks.RayDFNet import RayDistanceField
-from depth_visual import generate_scan, recurv_inference_by_rays
+from utils import generate_scan, recurv_inference_by_rays, generate_tour_video_super
 import preprocess as prep
 
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
@@ -37,6 +37,7 @@ root_path = os.path.join(meta_params['logging_root'], meta_params['experiment_na
 
 # generate meshes with color-coded coordinates
 
+tag = meta_params['experiment_name']
 template_path = os.path.join(root_path, 'template')
 os.makedirs(template_path, exist_ok=True)
 
@@ -62,7 +63,7 @@ generate_scan(
     filename=os.path.join(template_path, 'view_Z.png'),
 )
 
-
+generate_tour_video_super(model, radius=2., FPS=24, frames=60, resol=512, filename=os.path.join(template_path, f'{tag}.mp4'))
 
 # reconstruct pointcloud
 counts = 50000            
@@ -82,4 +83,4 @@ coords, dirs, depth = t_samples[:, :3], t_samples[:, 3:-1], t_samples[:, -1].res
 
 points = coords + dirs * depth
 
-trimesh.PointCloud(points).export(os.path.join(template_path, 'template.ply'))
+trimesh.PointCloud(points).export(os.path.join(template_path, f'{tag}.ply'))

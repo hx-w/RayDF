@@ -78,7 +78,7 @@ def raydf_loss(model_output, gt, loss_grad_deform=5):
 
     # -----------------
     return {
-        'depth': torch.abs(depth_constraint ** 2).mean() * 5e3, 
+        'depth': torch.abs(depth_constraint ** 2).mean() * 8e3, 
         'embeddings_constraint': embeddings_constraint.mean() * 1e2,
         'deform_coord_constraint': deform_coord_constraint.mean() * 5e2,
         'deform_dir_constraint': deform_dir_constraint.mean() * 5e2,
@@ -141,7 +141,7 @@ def embedding_loss(model_output, gt):
 
     # -----------------
     return {
-        'depth_constraint': torch.abs(depth_constraint ** 2).mean() * 5e3,
+        'depth_constraint': torch.abs(depth_constraint ** 2).mean() * 8e3,
         'embeddings_constraint': embeddings_constraint.mean() * 2e2,
         'cross_entropy_constraint': cross_entropy_constraint.mean() * 2e2,
         'inner_constraint': inner_constraint.mean() * 2e2

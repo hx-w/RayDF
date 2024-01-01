@@ -69,7 +69,7 @@ def load_and_unify(mesh_paths: List[str], scale_factor: float=0.0) -> Tuple[trim
         max_scale = scale_factor
     else:
         # max / 2
-        max_scale = 1.2 * np.max([np.linalg.norm(mesh.vertices, axis=1).max() for mesh in meshes]) / 2.
+        max_scale = 1. * np.max([np.linalg.norm(mesh.vertices, axis=1).max() for mesh in meshes]) 
 
     logger.info(f'max scale: {max_scale:.6f}')
 
@@ -99,8 +99,9 @@ on_mesh_nums 为网格离散点个数
 由于surf_rays的depth不一定为0.5 (因为可能有遮挡)，所以后续仍需要算surf_rays的depth
 '''
 def generate_sample_rays(mesh: trimesh.Trimesh, counts: int, radius: float=1.3, on_mesh_nums: int=8000) -> np.array:
-    free_count = int(0.6 * counts)
-    surf_count = counts - free_count
+    free_count = int(0.4 * counts)
+    surf_count = int(0.4 * counts)
+    sphere_count = counts - free_count - surf_count
     
     ## freespace
     in_ball_cam_pos_1 = sample_uniform_points_in_unit_sphere(free_count)
@@ -124,8 +125,16 @@ def generate_sample_rays(mesh: trimesh.Trimesh, counts: int, radius: float=1.3, 
         ], axis=1))
         
     surf_rays = np.concatenate(surf_rays, axis=0)
+
+    ## on-sphere
+    in_ball_cam_pos_1 = sample_uniform_points_in_unit_sphere(sphere_count)
+    in_ball_cam_pos_2 = sample_uniform_points_in_unit_sphere(sphere_count)
+    sphere_dirs = in_ball_cam_pos_2 - in_ball_cam_pos_1
+    sphere_dirs /= np.linalg.norm(sphere_dirs, axis=1)[:, np.newaxis]
+    sphere_oris = (in_ball_cam_pos_1 / np.linalg.norm(in_ball_cam_pos_1, axis=1)[:, np.newaxis]) * radius
+    sphere_rays = np.concatenate([sphere_oris, sphere_dirs], axis=1)
     
-    return np.concatenate([free_rays, surf_rays], axis=0)
+    return np.concatenate([free_rays, surf_rays, sphere_rays], axis=0)
 
 '''
 无交点的射线长度设为2.0

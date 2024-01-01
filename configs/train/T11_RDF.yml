@@ -1,5 +1,5 @@
 batch_size: 128
-epochs: 500
+epochs: 200
 epochs_til_checkpoint: 100
 expand: -1
 experiment_name: T11_RDF
