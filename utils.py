@@ -187,6 +187,10 @@ def filter_rays_with_sphere(rays: np.array, c: np.array=np.zeros(shape=(3,), dty
     
     return np.concatenate([ray_oris, Ts.reshape(-1, 1)], axis=1)
 
+def filter_rays_with_ellipsoid(rays: np.array, c: np.array=np.zeros(shape=(3,)), r: float=1.3, scale=np.array([1., 1., 1.])) -> np.array:
+    
+    pass
+
 def generate_scan_super(cam_pos: np.array, cam_dir: np.array, model, resol: int, filename: str=None, embedding=None, methods: list=['recursive', 'raw']):
     rays = get_pinhole_rays(cam_pos, cam_dir, resol) # (n, 6)
     
@@ -205,7 +209,7 @@ def generate_scan_super(cam_pos: np.array, cam_dir: np.array, model, resol: int,
         else:
             raise ValueError(f'Not a valid method: {mtd}')
 
-        depth[depth >= 2.] = np.inf
+        depth[depth >= 1.9] = np.inf
         depth = depth.reshape(-1, 1)
         depth = ray_ts[:, -1:] + depth
 
@@ -220,6 +224,7 @@ def generate_scan_super(cam_pos: np.array, cam_dir: np.array, model, resol: int,
         cmap = cm.get_cmap(style)
         image  = cmap(norm(depth_mat))[:, :, :3]
 
+        depth_mat[depth_mat == 0] = np.inf
         normal_image, normal_raw = depth2normal(depth_mat)
         normal_image[depth_mat == np.inf] = np.array([255., 255., 255.], dtype=np.uint8)
         

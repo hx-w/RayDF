@@ -11,6 +11,9 @@ import cv2
 from tqdm import tqdm
 
 from networks.RayDFNet import RayDistanceField
+from render.shade import shading_phong
+
+
 
 
 class ImplicitDrawable:
@@ -29,8 +32,8 @@ class ImplicitDrawable:
 
 class PLight:
     def __init__(self, pos: np.array, color: np.array):
-        self.pos   = pos
-        self.color = color
+        self.pos   = np.array(pos)
+        self.color = np.array(color)
 
 class GBuffer:
     def __init__(self, w, h):
@@ -44,6 +47,7 @@ class ImplicitScene:
         self.drawables: dict = {}  # {'T11_RDF': [ImplicitDrawable]}
         self.models: dict    = {}  # {'T11_RDF': NeuralNetworks}
         self.lights = []
+        self.lights_mat = None
         self.gbuffer = None
         
     def add_drawable(
@@ -64,6 +68,12 @@ class ImplicitScene:
     
     def add_point_light(self, light: PLight):
         self.lights.append(light)
+        
+        light_arr = np.concatenate([light.pos.reshape((1, 3)), light.color.reshape((1, 3)).astype(np.float64) / 255.], axis=1)
+        if self.lights_mat is None:
+            self.lights_mat = light_arr
+        else:
+            self.lights_mat = np.concatenate([self.lights_mat, light_arr], axis=0)
     
     def _reverse_transform(self, rays: np.array, inst: ImplicitDrawable) -> np.array:
         rays = np.copy(rays)
@@ -90,10 +100,10 @@ class ImplicitScene:
                 ray_ts = utils.filter_rays_with_sphere(drays, r=1.2)
                 drays[:, :3] = ray_ts[:, :3]
                 
-                # depth = utils.recurv_inference_by_rays(rays, model, inst.latent)
+                # depth = utils.recurv_inference_by_rays(drays, model, inst.latent)
                 depth = utils.generate_inference_by_rays(drays, model, inst.latent)[:, -1]
                 
-                depth[depth >= 2.] = np.inf
+                depth[depth >= 1.8] = np.inf
                 
                 depth = depth.reshape(-1, 1)
                 depth = ray_ts[:, -1:] + depth
@@ -108,9 +118,8 @@ class ImplicitScene:
                 self.gbuffer.depth_buffer[mask]  = depth_mat[mask]
                 self.gbuffer.normal_buffer[mask] = normals[mask]
                 self.gbuffer.raw_color[mask]     = inst.raw_color
-                ##
     
-    def defer_shading(self, cam_pos: np.array, cam_dir: np.array, resol: int, modes: list=['depth'], refresh=False) -> list:
+    def deferred_shading(self, cam_pos: np.array, cam_dir: np.array, resol: int, modes: list=['depth'], refresh=False) -> list:
         '''
         modes = ['depth', 'normal', 'blinn-phong']
         '''
@@ -122,7 +131,7 @@ class ImplicitScene:
         colors = []
         
         def depth_shade() -> np.array:
-            depth_buffer = self.gbuffer.depth_buffer
+            depth_buffer = np.copy(self.gbuffer.depth_buffer)
             
             depth_buffer[depth_buffer == np.inf] = 0.
             
@@ -137,7 +146,7 @@ class ImplicitScene:
             return frame
 
         def normal_shade() -> np.array:
-            normal_buffer = self.gbuffer.normal_buffer
+            normal_buffer = np.copy(self.gbuffer.normal_buffer)
             
             normal_buffer = (normal_buffer + 1) * 127.5
             normal_buffer = normal_buffer.clip(0, 255).astype(np.uint8)
@@ -145,18 +154,24 @@ class ImplicitScene:
             frame = cv2.cvtColor(normal_buffer, cv2.COLOR_RGB2BGR)
             
             frame[self.gbuffer.depth_buffer == np.inf] = np.array([255, 255, 255], dtype=np.uint8)
-            frame[self.gbuffer.depth_buffer == 0.] = np.array([255, 255, 255], dtype=np.uint8)
             
             return frame
         
         def phong_shade() -> np.array:
+            ray_buffer = raw_rays.reshape((resol, resol, 6))
             
+            frame = np.zeros_like(self.gbuffer.raw_color, dtype=np.uint8)
             
-            pass
-        
+            shading_phong(ray_buffer, self.gbuffer.depth_buffer, self.gbuffer.normal_buffer, self.gbuffer.raw_color, self.lights_mat, frame)
+            
+            frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            # print(frame)
+            return frame
+            
         shade_mapper = {
             'depth': depth_shade,
-            'normal': normal_shade, 
+            'normal': normal_shade,
+            'blinn-phong': phong_shade
         }
         
         colors = {mode: shade_mapper[mode]() for mode in modes}
@@ -168,13 +183,13 @@ def render_tour_video(video_path: str, impl_scene: ImplicitScene, FPS: int, reso
     video_writers = {
         'depth': cv2.VideoWriter(video_path.replace('.mp4', '_depth.mp4'), fourcc, FPS, (resol, resol), True),
         'normal': cv2.VideoWriter(video_path.replace('.mp4', '_normal.mp4'), fourcc, FPS, (resol, resol), True),
-        # 'blinn-phong': cv2.VideoWriter(video_path.replace('.mp4', '_phong.mp4'), fourcc, FPS, (resol, resol), True),
+        'blinn-phong': cv2.VideoWriter(video_path.replace('.mp4', '_phong.mp4'), fourcc, FPS, (resol, resol), True),
     }
     
     for cam_pos in tqdm(utils.get_equidistant_camera_angles(frames), desc='blending video', total=frames):
         cam_pos = view_radius * cam_pos
         
-        frames = impl_scene.defer_shading(cam_pos, -cam_pos, resol, list(video_writers.keys()), True)
+        frames = impl_scene.deferred_shading(cam_pos, -cam_pos, resol, list(video_writers.keys()), True)
 
         for shade_mode, video_writer in video_writers.items():
             video_writer.write(frames[shade_mode])
@@ -188,7 +203,7 @@ def render_tour_video(video_path: str, impl_scene: ImplicitScene, FPS: int, reso
 if __name__ == '__main__':
     impl_scene = ImplicitScene()
     
-    model_names = ['T11_RDF', 'T15_RDF', 'long_pants_RDF']
+    model_names = ['T11_RDF', 'T15_RDF', 'airplane_RDF']
     
     models = []
     for mn in model_names:
@@ -236,11 +251,14 @@ if __name__ == '__main__':
         Mtrans = [-1., 0., 0.]
     )
     
+    impl_scene.add_point_light(PLight([1., 0., 0.], [200, 200, 200]))
+    impl_scene.add_point_light(PLight([0., 1., 0.], [100, 255, 100]))
+    
     ## gen video
     FPS    = 10
     resol  = 1024
     frames = 60
-    radius = 7.
+    radius = 5.
     video_path = 'tests/output/blend_render.mp4'
     
     render_tour_video(video_path, impl_scene, FPS, resol, frames, radius)

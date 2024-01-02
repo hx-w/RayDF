@@ -33,7 +33,7 @@ class RayDistanceField(nn.Module):
         # Hyper-Net
         self.hyper_net = HyperNetwork(hyper_in_features=self.latent_dim, hyper_hidden_layers=hyper_hidden_layers, hyper_hidden_features=hyper_hidden_features, hypo_module=self.deform_net)
 
-        print(self)
+        # print(self)
 
     def get_hypo_net_weights(self, model_input):
         instance_idx = model_input['instance_idx']

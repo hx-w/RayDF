@@ -22,7 +22,7 @@ from networks.RayDFNet import RayDistanceField
 from networks.ODFNet import OmniDistanceField
 # from calculate_chamfer_distance import compute_recon_error
 
-import neural_render as nrender
+import render.neural_render as nrender
 
 
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
@@ -68,13 +68,11 @@ with open(meta_params['eval_split'],'r') as file:
 impl_scene = nrender.ImplicitScene()
 model_name = meta_params['experiment_name']
 
-displace = 0
+displace = 1
 
 # optimize latent code for each test subject
 for file in all_names:
     save_path = os.path.join(root_path, file)
-
-    # if already embedded, pass
 
     # load ground truth data
     sdf_dataset = dataset.RayDepthMulti(root_dir=[os.path.join(meta_params['mat_path'], file+'.mat')], **meta_params)
@@ -83,18 +81,20 @@ for file in all_names:
     # shape embedding
     latent = training_loop.train(model=model, train_dataloader=dataloader, model_dir=save_path, is_train=False, **meta_params)
 
-    impl_scene.add_drawable(model_name, model, latent, Mtrans=[0., 0., displace * ((-1) ** (displace % 2))])
+    impl_scene.add_drawable(model_name, model, latent, Mtrans=[0., 0., 1.3 * (displace // 2) * ((-1) ** (displace % 2))])
 
     displace += 1
 
+impl_scene.add_point_light(nrender.PLight([2., 0., 0.], [200, 200, 200]))
+impl_scene.add_point_light(nrender.PLight([0., 1., 0.], [100, 255, 100]))
 
 nrender.render_tour_video(
     os.path.join(root_path, f'blend_{model_name}.mp4'),
     impl_scene,
     FPS=10,
-    resol=1024,
-    frames=60,
-    view_radius=displace+1.5
+    resol=1920,
+    frames=90,
+    view_radius=displace * 1.3 + 1.5
 )
 
 # calculate chamfer distance for each subject
