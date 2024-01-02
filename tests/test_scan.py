@@ -5,7 +5,6 @@
 
 import os
 from typing import List, Tuple
-import math
 
 import trimesh
 import configargparse
@@ -17,6 +16,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 from matplotlib.colors import Normalize
+import pyrender
 
 import preprocess as prep
 import utils as dv
@@ -86,7 +86,7 @@ if __name__ == '__main__':
     
     tags, meshes = load_and_unify(mesh_paths, args.scale_factor)
 
-    radius = 1.3
+    radius = 2.
     resol  = 1024
 
     ## sample and save
@@ -120,3 +120,42 @@ if __name__ == '__main__':
             
         _save_heatmap(depth_rec.reshape((resol, resol)), png_path+'_recursive.png')
         _save_heatmap(depth_raw.reshape((resol, resol)), png_path+'_direct.png')
+
+        # pointcloud
+        points = mesh.sample(50000)
+        
+        camera_forward = cam_pos
+        camera_forward /= np.linalg.norm(camera_forward)
+        camera_up = np.array([0., 1., 0.])
+        if cam_pos[0] == 0. and cam_pos[2] == 0.:
+            camera_up = np.array([0., 0., 1])
+        
+        camera_right = np.cross(camera_forward, camera_up).flatten()
+        camera_right /= np.linalg.norm(camera_right)
+        camera_up = np.cross(camera_forward, camera_right)
+        camera_up /= np.linalg.norm(camera_up)
+        
+        points = np.concatenate([points, np.ones(shape=(points.shape[0], 1))], axis=1)
+        
+        Mr = np.identity(4)
+        Mr[0, :3] = camera_right
+        Mr[1, :3] = camera_up
+        Mr[2, :3] = -camera_forward
+        Mr[:3, 3] = -cam_pos
+        
+        ## transform pointcloud
+        points = (Mr @ points.T).T
+        
+        camera = pyrender.PerspectiveCamera(yfov=np.radians(90), aspectRatio=1.0, znear = 0.01, zfar=2.)
+        Mp = camera.get_projection_matrix()
+        Mp[3, 2] = 1
+        Mp[2, 2] = -Mp[2, 2]
+
+        points = (Mp @ points.T).T
+    
+        points[:, :3] /= points[:, 3:]
+        points = points[:, :3]
+        print(points)    
+    
+        # print(points.max(), points.min())
+        

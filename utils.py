@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import open3d as o3d
 import cv2
 import open3d.core as o3c
+import open3d as o3d
 import matplotlib.cm as cm
 from matplotlib.colors import Normalize
 from tqdm import tqdm
@@ -20,7 +21,7 @@ def get_equidistant_camera_angles(count):
 
     for i in range(count):
         phi = np.arcsin(-1 + 2 * i / (count - 1))
-        phi = 0.
+        # phi = 0.
         theta = ((i + 1) * increment) % (2 * np.pi)
         
         yield np.array([np.sin(theta) * np.cos(phi), np.sin(theta) * np.sin(phi), np.cos(theta)])   
@@ -195,6 +196,7 @@ def generate_scan_super(cam_pos: np.array, cam_dir: np.array, model, resol: int,
     # inp_coords = torch.from_numpy(rays[:, :3]).reshape((1, pixel_num, 3))
     # inp_dirs = torch.from_numpy(rays[:, 3:]).reshape((1, pixel_num, 3))
     image_arrs = []
+    normal_arrs = []
     for mtd in methods:
         if mtd == 'recursive':
             depth = recurv_inference_by_rays(rays, model, embedding)
@@ -212,18 +214,26 @@ def generate_scan_super(cam_pos: np.array, cam_dir: np.array, model, resol: int,
         
         style = 'gray_r'
         # plt.figure(figsize = (50, 50))
-        htmap = sns.heatmap(depth_mat, cmap=style, cbar=False, xticklabels=False, yticklabels=False)
+        # htmap = sns.heatmap(depth_mat, cmap=style, cbar=False, xticklabels=False, yticklabels=False)
         
-        if filename is not None:
-            htmap.get_figure().savefig(filename.replace('.png', f'_{mtd}.png'), pad_inches=False, bbox_inches='tight')
-            # continue
-
         norm = Normalize()
         cmap = cm.get_cmap(style)
-        image_arrs.append(cmap(norm(depth_mat))[:, :, :3])
+        image  = cmap(norm(depth_mat))[:, :, :3]
+
+        normal_image, normal_raw = depth2normal(depth_mat)
+        normal_image[depth_mat == np.inf] = np.array([255., 255., 255.], dtype=np.uint8)
+        
+        if filename is not None:
+            image = (image * 255).astype(np.uint8)
+            cv2.imwrite(filename.replace('.png', f'_{mtd}.png'), image)
+            # continue
+            cv2.imwrite(filename.replace(".png", f'_{mtd}_normal.png'), normal_image)
         
         plt.close()
     
+        image_arrs.append(image)
+        normal_arrs.append(normal_image)
+
     
     image_array = np.concatenate(image_arrs, axis=1)
     
@@ -233,15 +243,15 @@ def generate_tour_video_super(model, radius: float, FPS: int, frames: int, resol
     for mtd in methods:
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         video_writer = cv2.VideoWriter(filename.replace('.mp4', f'_{mtd}.mp4'), fourcc, FPS, (resol, resol), True)
-
+        video_writer_normal = cv2.VideoWriter(filename.replace('.mp4', f'_{mtd}_normal.mp4'), fourcc, FPS, (resol, resol), True)
+        
         for cam_pos in tqdm(get_equidistant_camera_angles(frames), desc='gen video', total=frames):
             cam_pos = radius * cam_pos
             rays = get_pinhole_rays(cam_pos, -cam_pos, resol)
             
             ray_ts = filter_rays_with_sphere(rays, r=1.3)
             rays[:, :3] = ray_ts[:, :3]
-            
-            
+             
             if mtd == 'recursive':
                 depth = recurv_inference_by_rays(rays, model, embedding)
             elif mtd == 'raw':
@@ -266,9 +276,15 @@ def generate_tour_video_super(model, radius: float, FPS: int, frames: int, resol
             img = (img * 255.).astype(np.uint8)
             img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
             
+            normal_map, normal_raw = depth2normal(mat)
+            normal_map[mat == np.inf] = np.array([255., 255., 255.], dtype=np.uint8)
+            
             video_writer.write(img)
+            video_writer_normal.write(normal_map)
             
         video_writer.release()
+        video_writer_normal.release()
+
         cv2.destroyAllWindows()
 
 def generate_pointcloud_super(model, counts: int, radius: float, embedding=None, filter_=True):
@@ -290,11 +306,53 @@ def generate_pointcloud_super(model, counts: int, radius: float, embedding=None,
     if not filter_:
         return points
 
-    ## filter
+    ## filter 正交投影过滤
+    ### by open3d
+    raw_points_num = points.shape[0]
     
-    ##
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(points)
+    
+    cl, ind = pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=1.0)
+    newpcd = pcd.select_by_index(ind)
+    
+    points = np.asarray(newpcd.points)
+    
+    new_points_num = points.shape[0]
+    
+    print(f'> pointcloud outlier removed: {raw_points_num - new_points_num}')
 
     return points
+
+def depth2normal(depth_mat: np.array):
+    depth_mat[depth_mat == np.inf] = 0.
+    
+    depth_mat = depth_mat.astype(np.float32)
+    rows, cols = depth_mat.shape
+
+    x, y = np.meshgrid(np.arange(cols), np.arange(rows))
+    x = x.astype(np.float32)
+    y = y.astype(np.float32)
+
+    # Calculate the partial derivatives of depth with respect to x and y
+    dx = cv2.Sobel(depth_mat, cv2.CV_32F, 1, 0)
+    dy = cv2.Sobel(depth_mat, cv2.CV_32F, 0, 1)
+
+    # Compute the normal vector for each pixel
+    normal = np.dstack((-dx, -dy, np.ones((rows, cols))))
+    norm = np.sqrt(np.sum(normal**2, axis=2, keepdims=True))
+    normal = np.divide(normal, norm, out=np.zeros_like(normal), where=norm != 0)
+    model_normal = normal
+
+    # Map the normal vectors to the [0, 255] range and convert to uint8
+    normal = (normal + 1) * 127.5
+    normal = normal.clip(0, 255).astype(np.uint8)
+
+    # Save the normal map to a file
+    normal_bgr = cv2.cvtColor(normal, cv2.COLOR_RGB2BGR)
+
+    depth_mat[depth_mat == 0.] = np.inf
+    return normal_bgr, model_normal
 
 if __name__ == '__main__':
     rays = get_pinhole_rays(np.array([-2., 0, 0]), np.array([2, 0, 0]), 256)
