@@ -12,6 +12,8 @@ import open3d as o3d
 import matplotlib.cm as cm
 from matplotlib.colors import Normalize
 from tqdm import tqdm
+from scipy.linalg import expm, norm
+    
 import preprocess as prep
 
 
@@ -224,24 +226,27 @@ def generate_scan_super(cam_pos: np.array, cam_dir: np.array, model, resol: int,
         cmap = cm.get_cmap(style)
         image  = cmap(norm(depth_mat))[:, :, :3]
 
-        depth_mat[depth_mat == 0] = np.inf
-        normal_image, normal_raw = depth2normal(depth_mat)
+        # depth_mat[depth_mat == 0.] = np.inf
+        normal_image, _ = depth2normal_tangentspace(depth_mat)
         normal_image[depth_mat == np.inf] = np.array([255., 255., 255.], dtype=np.uint8)
+        normal_image[depth_mat == 0.] = np.array([255., 255., 255.], dtype=np.uint8)
         
         if filename is not None:
             image = (image * 255).astype(np.uint8)
             cv2.imwrite(filename.replace('.png', f'_{mtd}.png'), image)
-            # continue
             cv2.imwrite(filename.replace(".png", f'_{mtd}_normal.png'), normal_image)
         
         plt.close()
     
+        normal_rbg = cv2.cvtColor(normal_image, cv2.COLOR_BGR2RGB)
+        normal_rbg = (normal_rbg.astype(np.float64) / 255.)
         image_arrs.append(image)
-        normal_arrs.append(normal_image)
+        normal_arrs.append(normal_rbg)
 
-    
+    normal_array = np.concatenate(normal_arrs, axis=1)
     image_array = np.concatenate(image_arrs, axis=1)
     
+    return np.concatenate([image_array, normal_array], axis=0)
     return image_array
     
 def generate_tour_video_super(model, radius: float, FPS: int, frames: int, resol: int, filename: str, embedding=None, methods: list=['recursive', 'raw']):
@@ -281,7 +286,7 @@ def generate_tour_video_super(model, radius: float, FPS: int, frames: int, resol
             img = (img * 255.).astype(np.uint8)
             img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
             
-            normal_map, normal_raw = depth2normal(mat)
+            normal_map, _ = depth2normal_tangentspace(mat)
             normal_map[mat == np.inf] = np.array([255., 255., 255.], dtype=np.uint8)
             
             video_writer.write(img)
@@ -329,7 +334,7 @@ def generate_pointcloud_super(model, counts: int, radius: float, embedding=None,
 
     return points
 
-def depth2normal(depth_mat: np.array):
+def depth2normal_tangentspace(depth_mat: np.array):
     depth_mat[depth_mat == np.inf] = 0.
     
     depth_mat = depth_mat.astype(np.float32)
@@ -347,7 +352,7 @@ def depth2normal(depth_mat: np.array):
     normal = np.dstack((-dx, -dy, np.ones((rows, cols))))
     norm = np.sqrt(np.sum(normal**2, axis=2, keepdims=True))
     normal = np.divide(normal, norm, out=np.zeros_like(normal), where=norm != 0)
-    model_normal = normal
+    raw_normal = normal
 
     # Map the normal vectors to the [0, 255] range and convert to uint8
     normal = (normal + 1) * 127.5
@@ -357,7 +362,51 @@ def depth2normal(depth_mat: np.array):
     normal_bgr = cv2.cvtColor(normal, cv2.COLOR_RGB2BGR)
 
     depth_mat[depth_mat == 0.] = np.inf
-    return normal_bgr, model_normal
+    return normal_bgr, raw_normal
+
+def depth2normal_worldspace(rays: np.array, depth_mat: np.array):
+    w, h = depth_mat.shape
+    normals = np.ones(shape=(w * h, 3)) * np.array([0., 0., 1.])
+    
+    depth = depth_mat.flatten()
+    
+    pts = rays[depth < np.inf, :3] + depth[depth < np.inf].reshape(-1, 1) * rays[depth < np.inf, 3:]
+    
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(pts)
+    pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamKNN(knn=50))
+    normals[depth < np.inf, :] = np.asarray(pcd.normals)
+    
+    # check normal direction: if ray dir and normal angle is smaller than 90, reverse normal
+    # ray_dirs = rays[depth < np.inf, 3:]
+    normal_dir_not_correct = (rays[:, 3:] * normals).sum(axis=-1) > 0
+    normals[normal_dir_not_correct] = -normals[normal_dir_not_correct]
+
+    return normals.reshape((w, h, 3))
+
+def get_rotation_matrix_from_points(p1: np.array, p2: np.array):
+    u = p1 / np.linalg.norm(p1)
+    v = p2 / np.linalg.norm(p2)
+
+    if np.linalg.norm(u - v) < 1e-6:
+        return np.identity(3)
+
+    # 计算旋转轴
+    axis = np.cross(u, v)
+
+    # 计算旋转角度
+    angle = np.arccos(np.dot(u, v))
+
+    return expm(np.cross(np.eye(3), axis/norm(axis)*angle)).T
+
+    # 使用旋转轴和旋转角度构建旋转矩阵
+    rotation_matrix =  np.array([
+        [np.cos(angle) + axis[0]**2*(1-np.cos(angle)), axis[0]*axis[1]*(1-np.cos(angle))-axis[2]*np.sin(angle), axis[0]*axis[2]*(1-np.cos(angle))+axis[1]*np.sin(angle)],
+        [axis[1]*axis[0]*(1-np.cos(angle))+axis[2]*np.sin(angle), np.cos(angle) + axis[1]**2*(1-np.cos(angle)), axis[1]*axis[2]*(1-np.cos(angle))-axis[0]*np.sin(angle)],
+        [axis[2]*axis[0]*(1-np.cos(angle))-axis[1]*np.sin(angle), axis[2]*axis[1]*(1-np.cos(angle))+axis[0]*np.sin(angle), np.cos(angle) + axis[2]**2*(1-np.cos(angle))]
+    ])
+
+    return rotation_matrix
 
 if __name__ == '__main__':
     rays = get_pinhole_rays(np.array([-2., 0, 0]), np.array([2, 0, 0]), 256)

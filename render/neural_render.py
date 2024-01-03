@@ -9,11 +9,10 @@ import yaml
 import torch
 import cv2
 from tqdm import tqdm
+import time
 
 from networks.RayDFNet import RayDistanceField
 from render.shade import shading_phong
-
-
 
 
 class ImplicitDrawable:
@@ -91,6 +90,8 @@ class ImplicitScene:
         if self.gbuffer is not None and not refresh:
             return
         
+        _start = time.time()
+        
         self.gbuffer = GBuffer(resol, resol)
         
         for model_name, model in self.models.items():
@@ -112,12 +113,16 @@ class ImplicitScene:
                 
                 mask = depth_mat < self.gbuffer.depth_buffer
                 
-                _, normals = utils.depth2normal(depth_mat)
+                _, normal_mat = utils.depth2normal_tangentspace(depth_mat)
 
                 ## blend with g-buffer
                 self.gbuffer.depth_buffer[mask]  = depth_mat[mask]
-                self.gbuffer.normal_buffer[mask] = normals[mask]
+                self.gbuffer.normal_buffer[mask] = normal_mat[mask]
                 self.gbuffer.raw_color[mask]     = inst.raw_color
+        
+        _end = time.time()
+        
+        print(f'[G-Buffer] generating takes {_end - _start:.3f}s')
     
     def deferred_shading(self, cam_pos: np.array, cam_dir: np.array, resol: int, modes: list=['depth'], refresh=False) -> list:
         '''
@@ -128,8 +133,6 @@ class ImplicitScene:
 
         self._process_GBuffer(raw_rays, resol, refresh)
 
-        colors = []
-        
         def depth_shade() -> np.array:
             depth_buffer = np.copy(self.gbuffer.depth_buffer)
             
@@ -147,6 +150,10 @@ class ImplicitScene:
 
         def normal_shade() -> np.array:
             normal_buffer = np.copy(self.gbuffer.normal_buffer)
+            # cam_pos_std = cam_pos / np.linalg.norm(cam_pos)
+            
+            # normal_t = utils.get_rotation_matrix_from_points(cam_pos_std, np.array([0., 0., 1.]))
+            # normal_buffer = self.gbuffer.normal_buffer @ normal_t.T
             
             normal_buffer = (normal_buffer + 1) * 127.5
             normal_buffer = normal_buffer.clip(0, 255).astype(np.uint8)
@@ -160,9 +167,14 @@ class ImplicitScene:
         def phong_shade() -> np.array:
             ray_buffer = raw_rays.reshape((resol, resol, 6))
             
+            cam_pos_std = cam_pos / np.linalg.norm(cam_pos)
+            
+            normal_t = utils.get_rotation_matrix_from_points(cam_pos_std, np.array([0., 0., 1.]))
+            normal_buffer = self.gbuffer.normal_buffer @ normal_t.T
+            
             frame = np.zeros_like(self.gbuffer.raw_color, dtype=np.uint8)
             
-            shading_phong(ray_buffer, self.gbuffer.depth_buffer, self.gbuffer.normal_buffer, self.gbuffer.raw_color, self.lights_mat, frame)
+            shading_phong(ray_buffer, self.gbuffer.depth_buffer, normal_buffer, self.gbuffer.raw_color, self.lights_mat, frame)
             
             frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
             # print(frame)
@@ -174,7 +186,14 @@ class ImplicitScene:
             'blinn-phong': phong_shade
         }
         
-        colors = {mode: shade_mapper[mode]() for mode in modes}
+        def log_profile(func, name):
+            _start = time.time()
+            rips = func()
+            _end = time.time()
+            print(f'[G-Buffer] - {name} - {_end - _start:.3f}s')
+            return rips
+        
+        colors = {mode: log_profile(shade_mapper[mode], mode) for mode in modes}
         
         return colors
         
@@ -213,6 +232,7 @@ if __name__ == '__main__':
         model = RayDistanceField(**meta_params)
         model.load_state_dict(torch.load(meta_params['checkpoint_path']))
         model.cuda()
+        model.eval()
         models.append(model)
     
     ## load scene with templates
@@ -251,8 +271,8 @@ if __name__ == '__main__':
         Mtrans = [-1., 0., 0.]
     )
     
-    impl_scene.add_point_light(PLight([1., 0., 0.], [200, 200, 200]))
-    impl_scene.add_point_light(PLight([0., 1., 0.], [100, 255, 100]))
+    impl_scene.add_point_light(PLight([5., 0., 0.], [255, 0., 0.]))
+    impl_scene.add_point_light(PLight([-5., 0., 0.], [0., 0., 255]))
     
     ## gen video
     FPS    = 10

@@ -85,8 +85,8 @@ for file in all_names:
 
     displace += 1
 
-impl_scene.add_point_light(nrender.PLight([2., 0., 0.], [200, 200, 200]))
-impl_scene.add_point_light(nrender.PLight([0., 1., 0.], [100, 255, 100]))
+impl_scene.add_point_light(nrender.PLight([0., -3., 0.], [200, 50, 50]))
+impl_scene.add_point_light(nrender.PLight([0., 3., 0.], [50, 255, 50]))
 
 nrender.render_tour_video(
     os.path.join(root_path, f'blend_{model_name}.mp4'),
@@ -94,7 +94,7 @@ nrender.render_tour_video(
     FPS=10,
     resol=1920,
     frames=90,
-    view_radius=displace * 1.3 + 1.5
+    view_radius=(displace // 2)+1.2
 )
 
 # calculate chamfer distance for each subject
