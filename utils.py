@@ -61,49 +61,30 @@ def generate_inference_by_rays(rays: np.array, model, embedding=None):
     depth[depth[:, 0:] > 1.9] = 2.
     
     return np.concatenate([rays, depth], axis=1)
-    
 
-def generate_inference(cam_pos: np.array, cam_dir: np.array, model, resol: int, embedding=None):
-    rays = get_pinhole_rays(cam_pos, cam_dir, resol) # (n, 6)
+def generate_deformation_by_rays(rays: np.array, model, embedding):
+    inp_coords = torch.from_numpy(rays[:, :3]).reshape((1, rays.shape[0], 3)).cuda().float()
+    inp_dirs = torch.from_numpy(rays[:, 3:]).reshape((1, rays.shape[0], 3)).cuda().float()
     
-    return generate_inference_by_rays(rays, model, embedding)
+    deform_coords, deform_dirs = model.get_template_coords_dirs(inp_coords, inp_dirs, embedding)
+    deform_coords = deform_coords.squeeze(1).detach().cpu().numpy().reshape((-1, 3))
+    deform_dirs   = deform_dirs.squeeze(1).detach().cpu().numpy().reshape((-1, 3))
     
-
-def generate_scan(cam_pos: np.array, cam_dir: np.array, model, resol: int, filename: str=None, embedding=None, methods: list=['recursive', 'raw']):
-
-    rays = get_pinhole_rays(cam_pos, cam_dir, resol) # (n, 6)
-    
-    # inp_coords = torch.from_numpy(rays[:, :3]).reshape((1, pixel_num, 3))
-    # inp_dirs = torch.from_numpy(rays[:, 3:]).reshape((1, pixel_num, 3))
-    image_arrs = []
-    for mtd in methods:
-        if mtd == 'recursive':
-            depth = recurv_inference_by_rays(rays, model, embedding)
-        elif mtd == 'raw':
-            depth = generate_inference_by_rays(rays, model, embedding)[:, -1]
-        else:
-            raise ValueError(f'Not a valid method: {mtd}')
-
-        depth_mat = depth.reshape((resol, resol))
+    def get_dirs_norms(arr):
+        norms = np.linalg.norm(arr, axis=1)
+        normed_arr = arr / norms[:, np.newaxis]
         
-        style = 'viridis'
-        # plt.figure(figsize = (50, 50))
-        htmap = sns.heatmap(depth_mat, cmap=style, cbar=False, xticklabels=False, yticklabels=False)
-        
-        if filename is not None:
-            htmap.get_figure().savefig(filename.replace('.png', f'_{mtd}.png'), pad_inches=False, bbox_inches='tight')
-            # continue
-
+        style = 'gray_r'
         norm = Normalize()
         cmap = cm.get_cmap(style)
-        image_arrs.append(cmap(norm(depth_mat))[:, :, :3])
+        dnorm = (cmap(norm(norms))[:, :3] * 255).astype(np.uint8)
         
-        plt.close()
+        ddirs = (normed_arr + 1) * 127.5
+        ddirs = ddirs.clip(0, 255).astype(np.uint8)
+
+        return ddirs, dnorm
     
-    
-    image_array = np.concatenate(image_arrs, axis=1)
-    
-    return image_array
+    return *get_dirs_norms(deform_coords), *get_dirs_norms(deform_dirs)
 
 def recurv_inference_by_rays(rays: np.array, model, embedding=None, thred: float=.3, stack_depth: int=0):
     depth = np.zeros(shape=(rays.shape[0], 1))
@@ -194,10 +175,10 @@ def generate_scan_super(cam_pos: np.array, cam_dir: np.array, model, resol: int,
     ray_ts = filter_rays_with_sphere(rays, r=1.25)
     rays[:, :3] = ray_ts[:, :3]
     
-    # inp_coords = torch.from_numpy(rays[:, :3]).reshape((1, pixel_num, 3))
-    # inp_dirs = torch.from_numpy(rays[:, 3:]).reshape((1, pixel_num, 3))
     image_arrs = []
     normal_arrs = []
+    
+    
     for mtd in methods:
         if mtd == 'recursive':
             depth = recurv_inference_by_rays(rays, model, embedding)
@@ -214,8 +195,6 @@ def generate_scan_super(cam_pos: np.array, cam_dir: np.array, model, resol: int,
         depth_mat[depth_mat == np.inf] = 0.
         
         style = 'gray_r'
-        # plt.figure(figsize = (50, 50))
-        # htmap = sns.heatmap(depth_mat, cmap=style, cbar=False, xticklabels=False, yticklabels=False)
         
         norm = Normalize()
         cmap = cm.get_cmap(style)
@@ -223,14 +202,32 @@ def generate_scan_super(cam_pos: np.array, cam_dir: np.array, model, resol: int,
 
         # depth_mat[depth_mat == 0.] = np.inf
         normal_image, _ = depth2normal_tangentspace(depth_mat)
-        normal_image[depth_mat == np.inf] = np.array([255., 255., 255.], dtype=np.uint8)
         normal_image[depth_mat == 0.] = np.array([255., 255., 255.], dtype=np.uint8)
+        
+        if mtd == 'raw' and embedding is not None:
+            deform_T, deform_Tn, deform_R, deform_Rn = generate_deformation_by_rays(rays, model, embedding)
+            deform_T = deform_T.reshape((resol, resol, 3))
+            deform_Tn = deform_Tn.reshape((resol, resol, 3))
+            deform_R = deform_R.reshape((resol, resol, 3))
+            deform_Rn = deform_Rn.reshape((resol, resol, 3))
+            
+            deform_T = cv2.cvtColor(deform_T, cv2.COLOR_RGB2BGR)
+            deform_R = cv2.cvtColor(deform_R, cv2.COLOR_RGB2BGR)
+            deform_T[depth_mat == 0.] = np.array([255, 255, 255], dtype=np.uint8)
+            deform_Tn[depth_mat == 0.] = np.array([255, 255, 255], dtype=np.uint8)
+            deform_R[depth_mat == 0.] = np.array([255, 255, 255], dtype=np.uint8)
+            deform_Rn[depth_mat == 0.] = np.array([255, 255, 255], dtype=np.uint8)
+            
+            cv2.imwrite(filename.replace('.png', f'_deform_T.png'), deform_T)
+            cv2.imwrite(filename.replace('.png', f'_deform_Tn.png'), deform_Tn)
+            cv2.imwrite(filename.replace('.png', f'_deform_R.png'), deform_R)
+            cv2.imwrite(filename.replace('.png', f'_deform_Rn.png'), deform_Rn)
         
         if filename is not None:
             image = (image * 255).astype(np.uint8)
             cv2.imwrite(filename.replace('.png', f'_{mtd}.png'), image)
             cv2.imwrite(filename.replace(".png", f'_{mtd}_normal.png'), normal_image)
-        
+            
         # plt.close()
     
         normal_rbg = cv2.cvtColor(normal_image, cv2.COLOR_BGR2RGB)

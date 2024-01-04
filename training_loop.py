@@ -144,7 +144,7 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
             )
 
             # reconstruct pointcloud
-            points = utils.generate_pointcloud_super(model, 5000000, radius=1.1, embedding=embedding, filter_=True)
+            points = utils.generate_pointcloud_super(model, 50000, radius=1.1, embedding=embedding, filter_=True)
             trimesh.PointCloud(points).export(os.path.join(checkpoints_dir, f'{tag}.ply'))
 
             return embedding

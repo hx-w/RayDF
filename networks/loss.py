@@ -40,7 +40,7 @@ def raydf_loss(model_output, gt, loss_grad_deform=5):
     coord_deform = model_output['coord_deform'].reshape(-1, 3)
     dirs = model_output['dir_old'].reshape(-1, 3)
     new_dirs = model_output['dir_new'].reshape(-1, 3)
-    deform_dir = model_output['dir_deform'].reshape(-1, 3)
+    # deform_dir = model_output['dir_deform'].reshape(-1, 3)
 
     # depth prior
     depth_constraint = pred_depth - gt_depth

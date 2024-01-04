@@ -84,6 +84,12 @@ class ImplicitScene:
         
         rays[:, 3:] = end - rays[:, :3]
         
+        end = rays[:, :3] + rays[:, 3:]
+        rays[:, :3] /= inst.Mscale
+        end /= inst.Mscale
+        rays[:, 3:] = end - rays[:, :3]
+        rays[:, 3:] /= np.linalg.norm(rays[:, 3:], axis=1)[:, np.newaxis]
+        
         return rays
     
     def _process_GBuffer(self, rays: np.array, resol: int, refresh=False):
@@ -222,7 +228,7 @@ def render_tour_video(video_path: str, impl_scene: ImplicitScene, FPS: int, reso
 if __name__ == '__main__':
     impl_scene = ImplicitScene()
     
-    model_names = ['T11_RDF', 'T15_RDF', 'airplane_RDF']
+    model_names = ['T15_RDF']
     
     models = []
     for mn in model_names:
@@ -250,26 +256,27 @@ if __name__ == '__main__':
     )
     
     impl_scene.add_drawable(
-        model_names[1], models[1], None,
-        Mscale = [1., 1., 1.],
+        model_names[0], models[0], None,
+        Mscale = [2., 2., 2.],
         Mrot = [
-            [1., 0., 0.],
-            [0., np.cos(theta), -np.sin(theta)],
-            [0., np.sin(theta), np.cos(theta)],
+            [np.cos(-theta), -np.sin(-theta), 0.],
+            [np.sin(-theta), np.cos(-theta), .0],
+            [0., 0., 1.]
         ],
-        Mtrans = [0., 0., 2.5]
+        Mtrans = [0., 0., -2.5]
     )
 
     impl_scene.add_drawable(
-        model_names[2], models[2], None,
-        Mscale = [1., 1., 1.],
+        model_names[0], models[0], None,
+        Mscale = [1./3., 1./3., 1./3.],
         Mrot = [
             [1., 0., 0.],
             [0., np.cos(theta), -np.sin(theta)],
             [0., np.sin(theta), np.cos(theta)],
         ],
-        Mtrans = [-1., 0., 0.]
+        Mtrans = [0., 0., 1.5]
     )
+
     
     impl_scene.add_point_light(PLight([3.,  0., 0.], [255, 0., 0.]))
     impl_scene.add_point_light(PLight([-3., 0., 0.], [0., 0., 255]))
@@ -282,7 +289,7 @@ if __name__ == '__main__':
     FPS    = 10
     resol  = 1024
     frames = 60
-    radius = 5.
+    radius = 8.
     video_path = 'tests/output/blend_render.mp4'
     
     render_tour_video(video_path, impl_scene, FPS, resol, frames, radius)

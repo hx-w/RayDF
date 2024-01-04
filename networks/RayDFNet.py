@@ -83,6 +83,8 @@ class RayDistanceField(nn.Module):
             deform_coords = model_output['model_out'][:, :, :3]
             deform_dirs = model_output['model_out'][:, :, 3:]
             
+            return deform_coords, deform_dirs
+            
             new_coords = coords + deform_coords
             _s = list(deform_dirs.shape[:2]) + [4, 4]
             rot = tgm.angle_axis_to_rotation_matrix(deform_dirs.reshape(-1, 3))
@@ -162,7 +164,7 @@ class RayDistanceField(nn.Module):
             'coord_deform': deform_coords,
             'dir_old': dirs,
             'dir_new': new_dirs,
-            'dir_deform': deform_dirs,
+            # 'dir_deform': deform_dirs,
             'grad_deform':grad_deform,
             'model_out': depth,
             'latent_vec':embedding,
