@@ -16,9 +16,9 @@ def pixel_shading_phong(
     if depth == np.inf:
         return np.ones(shape=(3,))
 
-    ambi_factor = 1.
+    ambi_factor = .8
     spec_factor = .5
-    diff_factor = 1.
+    diff_factor = .8
     
     # [0, 1]
     base_color  = raw_color.astype(np.float64) / 255.
@@ -36,7 +36,6 @@ def pixel_shading_phong(
         halfway_dir = light_dir + view_dir
         halfway_dir /= np.linalg.norm(halfway_dir)
         spec_ratio  = max(np.dot(normal_dir, halfway_dir), 0.05) ** 32
-        
         # print(diff_ratio, spec_ratio)
         
         ambi_color = ambi_factor * light_color

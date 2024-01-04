@@ -81,18 +81,20 @@ for file in all_names:
     # shape embedding
     latent = training_loop.train(model=model, train_dataloader=dataloader, model_dir=save_path, is_train=False, **meta_params)
 
-    impl_scene.add_drawable(model_name, model, latent, Mtrans=[0., 0., 1.3 * (displace // 2) * ((-1) ** (displace % 2))])
+    impl_scene.add_drawable(model_name, model, latent, Mtrans=[1.3 * (displace // 2) * ((-1) ** (displace % 2)), 0., 0.])
 
     displace += 1
 
-impl_scene.add_point_light(nrender.PLight([0., -3., 0.], [200, 50, 50]))
-impl_scene.add_point_light(nrender.PLight([0., 3., 0.], [50, 255, 50]))
+# impl_scene.add_point_light(nrender.PLight([0., -3., 0.], [166, 27, 41]))
+impl_scene.add_point_light(nrender.PLight([0., 3., 0.], [49, 122, 167]))
+# impl_scene.add_point_light(nrender.PLight([0., 0., 3.], [252, 161, 6]))
+impl_scene.add_point_light(nrender.PLight([0., 0., -3.], [140, 194, 105]))
 
 nrender.render_tour_video(
     os.path.join(root_path, f'blend_{model_name}.mp4'),
     impl_scene,
     FPS=10,
-    resol=1920,
+    resol=1024,
     frames=90,
     view_radius=(displace // 2)+1.2
 )

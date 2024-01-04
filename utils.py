@@ -178,9 +178,7 @@ filter rays with a sphere,
 #     '(n, m), (k), () -> (n, m)'
 # )
 def filter_rays_with_sphere(rays: np.array, c: np.array=np.zeros(shape=(3,), dtype=np.float32), r: float=1.3) -> np.array:
-    Ts = [_sphere_intersect(ray, c, r) for ray in rays]
-    
-    Ts = np.array(Ts)
+    Ts = np.array([_sphere_intersect(ray, c, r) for ray in rays])
     
     ray_oris = rays[:, :3]
     
@@ -189,14 +187,11 @@ def filter_rays_with_sphere(rays: np.array, c: np.array=np.zeros(shape=(3,), dty
     
     return np.concatenate([ray_oris, Ts.reshape(-1, 1)], axis=1)
 
-def filter_rays_with_ellipsoid(rays: np.array, c: np.array=np.zeros(shape=(3,)), r: float=1.3, scale=np.array([1., 1., 1.])) -> np.array:
-    
-    pass
 
 def generate_scan_super(cam_pos: np.array, cam_dir: np.array, model, resol: int, filename: str=None, embedding=None, methods: list=['recursive', 'raw']):
     rays = get_pinhole_rays(cam_pos, cam_dir, resol) # (n, 6)
     
-    ray_ts = filter_rays_with_sphere(rays, r=1.2)
+    ray_ts = filter_rays_with_sphere(rays, r=1.25)
     rays[:, :3] = ray_ts[:, :3]
     
     # inp_coords = torch.from_numpy(rays[:, :3]).reshape((1, pixel_num, 3))
@@ -211,7 +206,7 @@ def generate_scan_super(cam_pos: np.array, cam_dir: np.array, model, resol: int,
         else:
             raise ValueError(f'Not a valid method: {mtd}')
 
-        depth[depth >= 1.9] = np.inf
+        depth[depth >= 2.] = np.inf
         depth = depth.reshape(-1, 1)
         depth = ray_ts[:, -1:] + depth
 
@@ -236,7 +231,7 @@ def generate_scan_super(cam_pos: np.array, cam_dir: np.array, model, resol: int,
             cv2.imwrite(filename.replace('.png', f'_{mtd}.png'), image)
             cv2.imwrite(filename.replace(".png", f'_{mtd}_normal.png'), normal_image)
         
-        plt.close()
+        # plt.close()
     
         normal_rbg = cv2.cvtColor(normal_image, cv2.COLOR_BGR2RGB)
         normal_rbg = (normal_rbg.astype(np.float64) / 255.)
@@ -288,6 +283,7 @@ def generate_tour_video_super(model, radius: float, FPS: int, frames: int, resol
             
             normal_map, _ = depth2normal_tangentspace(mat)
             normal_map[mat == np.inf] = np.array([255., 255., 255.], dtype=np.uint8)
+            normal_map[mat == 0.] = np.array([255., 255., 255.], dtype=np.uint8)
             
             video_writer.write(img)
             video_writer_normal.write(normal_map)
@@ -398,15 +394,6 @@ def get_rotation_matrix_from_points(p1: np.array, p2: np.array):
     angle = np.arccos(np.dot(u, v))
 
     return expm(np.cross(np.eye(3), axis/norm(axis)*angle)).T
-
-    # 使用旋转轴和旋转角度构建旋转矩阵
-    rotation_matrix =  np.array([
-        [np.cos(angle) + axis[0]**2*(1-np.cos(angle)), axis[0]*axis[1]*(1-np.cos(angle))-axis[2]*np.sin(angle), axis[0]*axis[2]*(1-np.cos(angle))+axis[1]*np.sin(angle)],
-        [axis[1]*axis[0]*(1-np.cos(angle))+axis[2]*np.sin(angle), np.cos(angle) + axis[1]**2*(1-np.cos(angle)), axis[1]*axis[2]*(1-np.cos(angle))-axis[0]*np.sin(angle)],
-        [axis[2]*axis[0]*(1-np.cos(angle))-axis[1]*np.sin(angle), axis[2]*axis[1]*(1-np.cos(angle))+axis[0]*np.sin(angle), np.cos(angle) + axis[2]**2*(1-np.cos(angle))]
-    ])
-
-    return rotation_matrix
 
 if __name__ == '__main__':
     rays = get_pinhole_rays(np.array([-2., 0, 0]), np.array([2, 0, 0]), 256)

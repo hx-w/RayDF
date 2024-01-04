@@ -11,9 +11,8 @@ import numpy as np
 import trimesh
 
 import utils
-import preprocess as prep
 
-radius = 1.8
+radius = 1.6
 def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_checkpoint, model_dir, loss_schedules=None, is_train=True, **kwargs):
     print('Training Info:')
     print('data_path:\t\t',kwargs['mat_path'])
@@ -139,13 +138,13 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
             )
             
             utils.generate_tour_video_super(
-                model, radius=2., FPS=24, frames=90, resol=512,
+                model, radius=2., FPS=10, frames=60, resol=512,
                 embedding=embedding,
                 filename=os.path.join(checkpoints_dir, f'{tag}.mp4')
             )
 
             # reconstruct pointcloud
-            points = utils.generate_pointcloud_super(model, 50000, radius=1.3, embedding=embedding, filter_=True)
+            points = utils.generate_pointcloud_super(model, 5000000, radius=1.1, embedding=embedding, filter_=True)
             trimesh.PointCloud(points).export(os.path.join(checkpoints_dir, f'{tag}.ply'))
 
             return embedding

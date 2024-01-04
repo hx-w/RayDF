@@ -191,7 +191,7 @@ class ImplicitScene:
             rips = func()
             _end = time.time()
             print(f'[G-Buffer] - {name} - {_end - _start:.3f}s')
-            return rips
+            return rips[::-1] # flip
         
         colors = {mode: log_profile(shade_mapper[mode], mode) for mode in modes}
         
@@ -271,8 +271,12 @@ if __name__ == '__main__':
         Mtrans = [-1., 0., 0.]
     )
     
-    impl_scene.add_point_light(PLight([5., 0., 0.], [255, 0., 0.]))
-    impl_scene.add_point_light(PLight([-5., 0., 0.], [0., 0., 255]))
+    impl_scene.add_point_light(PLight([3.,  0., 0.], [255, 0., 0.]))
+    impl_scene.add_point_light(PLight([-3., 0., 0.], [0., 0., 255]))
+    # impl_scene.add_point_light(nrender.PLight([0., -3., 0.], [166, 27, 41]))
+    # impl_scene.add_point_light(nrender.PLight([0., 3., 0.], [49, 122, 167]))
+    # impl_scene.add_point_light(nrender.PLight([3., 0., 0.], [252, 161, 6]))
+    # impl_scene.add_point_light(nrender.PLight([-3., 0., 0.], [140, 194, 105]))
     
     ## gen video
     FPS    = 10
