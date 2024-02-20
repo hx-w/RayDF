@@ -12,3 +12,5 @@ experiments/
 viewports/
 tests/output/*.png
 tests/output/*.mp4
+
+exp_render/model3d/

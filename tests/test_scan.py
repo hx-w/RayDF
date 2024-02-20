@@ -82,11 +82,20 @@ if __name__ == '__main__':
     
     mesh_paths = glob(os.path.join(args.data_dir, args.split) + '/*/*.obj')
     ## for test, only 1 mesh
-    mesh_paths = mesh_paths[-2:-1]
+    ff = [
+        '196d35794f869816db6f03b6829a5891',
+        '1667ab313638fb366cf1b4a8fc3914e',
+        '16079ddc92f4c9efd677715e63c14038',
+        '1e4fb40e5908f2bddf2f34e1100f0241',
+        '1e4bb798f236f0b17f1f82f6fc8747b8'
+    ]
+    
+    mesh_paths = list(filter(lambda x: x.split(os.sep)[-2] in ff, mesh_paths))
+    # mesh_paths = mesh_paths[-2:-1]
     
     tags, meshes = load_and_unify(mesh_paths, args.scale_factor)
 
-    radius = 2.
+    radius = 1.5
     resol  = 1024
 
     ## sample and save
@@ -101,12 +110,13 @@ if __name__ == '__main__':
         
         depth_rec = generate_sample_depth_recursive(scene, rays, 0.3)
         depth_raw = prep.generate_sample_depth(scene, rays)
+        depth_raw[depth_raw == 2.] = 1.3
         
         def _save_heatmap(mat: np.array, path: str):
             style = 'gray_r'
             cmap = sns.cubehelix_palette(start=0.0, gamma=0.8, as_cmap=True)
 
-            htmap = sns.heatmap(mat, cmap=style, cbar=True, xticklabels=False, yticklabels=False)
+            htmap = sns.heatmap(mat, cmap=style, cbar=False, xticklabels=False, yticklabels=False)
             htmap.get_figure().savefig(path, pad_inches=False, bbox_inches='tight')
             
             # canvas = htmap.get_figure().canvas
@@ -121,41 +131,5 @@ if __name__ == '__main__':
         _save_heatmap(depth_rec.reshape((resol, resol)), png_path+'_recursive.png')
         _save_heatmap(depth_raw.reshape((resol, resol)), png_path+'_direct.png')
 
-        # pointcloud
-        points = mesh.sample(50000)
-        
-        camera_forward = cam_pos
-        camera_forward /= np.linalg.norm(camera_forward)
-        camera_up = np.array([0., 1., 0.])
-        if cam_pos[0] == 0. and cam_pos[2] == 0.:
-            camera_up = np.array([0., 0., 1])
-        
-        camera_right = np.cross(camera_forward, camera_up).flatten()
-        camera_right /= np.linalg.norm(camera_right)
-        camera_up = np.cross(camera_forward, camera_right)
-        camera_up /= np.linalg.norm(camera_up)
-        
-        points = np.concatenate([points, np.ones(shape=(points.shape[0], 1))], axis=1)
-        
-        Mr = np.identity(4)
-        Mr[0, :3] = camera_right
-        Mr[1, :3] = camera_up
-        Mr[2, :3] = -camera_forward
-        Mr[:3, 3] = -cam_pos
-        
-        ## transform pointcloud
-        points = (Mr @ points.T).T
-        
-        camera = pyrender.PerspectiveCamera(yfov=np.radians(90), aspectRatio=1.0, znear = 0.01, zfar=2.)
-        Mp = camera.get_projection_matrix()
-        Mp[3, 2] = 1
-        Mp[2, 2] = -Mp[2, 2]
-
-        points = (Mp @ points.T).T
-    
-        points[:, :3] /= points[:, 3:]
-        points = points[:, :3]
-        print(points)    
-    
         # print(points.max(), points.min())
         

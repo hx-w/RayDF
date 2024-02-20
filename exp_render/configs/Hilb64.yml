@@ -1,0 +1,12 @@
+batch_size: 64
+epochs: 5000
+epochs_til_checkpoint: 100
+experiment_name: Hilb64
+hidden_num: 128
+logging_root: ./exp_render/logs
+lr: 0.0001
+model_type: sine
+batch_max: 8000
+steps_til_summary: 200
+checkpoint_path: ./exp_render/logs/Hilb64/checkpoints/model_current.pth
+mat_path: exp_render/datasets/Hilb64Thick.mat

@@ -1,0 +1,12 @@
+batch_size: 64
+epochs: 5000
+epochs_til_checkpoint: 100
+experiment_name: T11_1
+hidden_num: 128
+logging_root: ./exp_render/logs
+lr: 0.0001
+model_type: sine
+batch_max: 16000
+steps_til_summary: 200
+checkpoint_path: ./exp_render/logs/T11_1/checkpoints/model_current.pth
+mat_path: datasets/T11/n17_kangyixi.mat

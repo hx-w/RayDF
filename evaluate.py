@@ -81,13 +81,18 @@ for file in all_names:
     # shape embedding
     latent = training_loop.train(model=model, train_dataloader=dataloader, model_dir=save_path, is_train=False, **meta_params)
 
-    impl_scene.add_drawable(model_name, model, latent, Mtrans=[1.3 * (displace // 2) * ((-1) ** (displace % 2)), 0., 0.])
+    impl_scene.add_drawable(
+        model_name,
+        model,
+        latent,
+        Mtrans=[1.4 * (displace // 2) * ((-1) ** (displace % 2)), 0., 0.]
+    )
 
     displace += 1
 
 # impl_scene.add_point_light(nrender.PLight([0., -3., 0.], [166, 27, 41]))
-impl_scene.add_point_light(nrender.PLight([0., 3., 0.], [49, 122, 167]))
-# impl_scene.add_point_light(nrender.PLight([0., 0., 3.], [252, 161, 6]))
+# impl_scene.add_point_light(nrender.PLight([0., 3., 0.], [49, 122, 167]))
+impl_scene.add_point_light(nrender.PLight([0., 0., 3.], [252, 161, 6]))
 impl_scene.add_point_light(nrender.PLight([0., 0., -3.], [140, 194, 105]))
 
 nrender.render_tour_video(

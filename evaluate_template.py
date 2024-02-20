@@ -41,20 +41,20 @@ tag = meta_params['experiment_name']
 template_path = os.path.join(root_path, 'template')
 os.makedirs(template_path, exist_ok=True)
 
-# generate_scan_super(
-#     cam_pos=np.array([radius, 0.0, 0.0]),
-#     cam_dir=np.array([-radius, 0.0, 0.0]),
-#     model=model,
-#     resol=1024,
-#     filename=os.path.join(template_path, 'view_X.png'),
-# )
-# generate_scan_super(
-#     cam_pos=np.array([0.0, radius, 0.0]),
-#     cam_dir=np.array([0.0, -radius, 0.0]),
-#     model=model,
-#     resol=1024,
-#     filename=os.path.join(template_path, 'view_Y.png'),
-# )
+generate_scan_super(
+    cam_pos=np.array([radius, 0.0, 0.0]),
+    cam_dir=np.array([-radius, 0.0, 0.0]),
+    model=model,
+    resol=1024,
+    filename=os.path.join(template_path, 'view_X.png'),
+)
+generate_scan_super(
+    cam_pos=np.array([0.0, radius, 0.0]),
+    cam_dir=np.array([0.0, -radius, 0.0]),
+    model=model,
+    resol=1024,
+    filename=os.path.join(template_path, 'view_Y.png'),
+)
 generate_scan_super(
     cam_pos=np.array([0.0, 0.0, radius]),
     cam_dir=np.array([0.0, 0.0, -radius]),
@@ -65,6 +65,6 @@ generate_scan_super(
 
 generate_tour_video_super(model, radius=2., FPS=24, frames=90, resol=512, filename=os.path.join(template_path, f'{tag}.mp4'))
 
-points = generate_pointcloud_super(model, 50000, 1.3, None, True)
+points = generate_pointcloud_super(model, 9000, 1.3, None, True)
 
 trimesh.PointCloud(points).export(os.path.join(template_path, f'{tag}.ply'))

@@ -10,6 +10,55 @@ from torch.utils.data import Dataset
 from scipy.io import loadmat
 
 
+class SimRayDepthDataset(Dataset):
+    def __init__(self, mat_path, batch_max):
+        super().__init__()
+
+        samples = loadmat(mat_path)['ray_depth']
+        
+        samples = self._enhance_dataset(samples)
+        
+        self.coords = samples[:, :3]
+        self.dirs = samples[:, 3:-1]
+        self.depth = samples[:, -1:]
+        self.batch_max = batch_max
+
+    def _enhance_dataset(self, samples: np.array) -> np.array:
+        thred = 0.2
+        sub = samples[samples[:, -1] < 2.]
+        addons = []
+        iter_gt = 0
+        
+        sub_gt = sub[sub[:, -1] > thred]
+        while sub_gt.shape[0] > 0:
+            sub_gt[:, :3] = sub_gt[:, :3] + thred * sub_gt[:, 3:-1]
+            sub_gt[:, -1:] = sub_gt[:, -1:] - thred
+        
+            addons.append(sub_gt)
+            sub_gt = sub_gt[sub_gt[:, -1] > thred]
+            iter_gt += 1
+        
+        addons = np.concatenate(addons, axis=0)
+        
+        print(f'>> enhance with iter {iter_gt}, add new samples {addons.shape[0]}')
+        
+        return np.concatenate([addons, samples], axis=0)
+
+
+    def __len__(self):
+        return self.coords.shape[0] // self.batch_max
+
+    def __getitem__(self, idx):
+        sample_size = self.coords.shape[0]
+        # Random coords
+        rand_idcs = np.random.choice(sample_size, size=self.batch_max)
+
+        return {
+            'coords': torch.from_numpy(self.coords[rand_idcs, :]).float(),
+            'dirs': torch.from_numpy(self.dirs[rand_idcs, :]).float(),
+        }, {
+            'depth': torch.from_numpy(self.depth[rand_idcs, :]).float(),
+        }
 
 class RayDepthDataset(Dataset):
     def __init__(self, mat_path, batch_max, instance_idx=None):
