@@ -10,3 +10,4 @@ batch_max: 16000
 steps_til_summary: 200
 checkpoint_path: ./exp_render/logs/T11_1/checkpoints/model_current.pth
 mat_path: datasets/T11/n17_kangyixi.mat
+net: sim_RDF

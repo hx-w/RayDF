@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 
-
 '''
 brief:
 
@@ -23,6 +22,10 @@ import open3d as o3d
 import open3d.core as o3c
 from tqdm import tqdm
 
+sys.path.append('.')
+from mesh_to_sdf import mesh_to_sdf
+
+os.environ['PYOPENGL_PLATFORM'] = 'egl'
 
 logger = logging.getLogger('preprocess')
 def setup_logger():
@@ -78,8 +81,7 @@ def load_and_unify(mesh_paths: List[str], scale_factor: float=0.0) -> Tuple[trim
             meshes[ind].apply_scale(1. / max_scale)
 
             try:
-                pass
-                # meshes[ind].export(mesh_paths[ind])
+                meshes[ind].export(mesh_paths[ind])
             except Exception as e:
                 logger.warn(f'SKIP file saving failed: {mesh_paths[ind]}')
 
@@ -103,7 +105,6 @@ def generate_sample_rays(mesh: trimesh.Trimesh, counts: int, radius: float=1.3, 
     free_count = int(0.3 * counts)
     surf_count = int(0.3 * counts)
     sphere_count = 2 * (counts - free_count - surf_count)
-    surf_count *= 3
     
     ## freespace
     in_ball_cam_pos_1 = sample_uniform_points_in_unit_sphere(free_count)
@@ -150,16 +151,23 @@ def generate_sample_depth(scene: o3d.t.geometry.RaycastingScene, rays: np.array)
     return depth
 
 def sample_dataset(mesh: trimesh.Trimesh, sample_counts: int) -> np.array:
-    scene = o3d.t.geometry.RaycastingScene()
-    scene.add_triangles(o3d.t.geometry.TriangleMesh.from_legacy(mesh.as_open3d))
+    # scene = o3d.t.geometry.RaycastingScene()
+    # scene.add_triangles(o3d.t.geometry.TriangleMesh.from_legacy(mesh.as_open3d))
     
-    ## generate rays
-    sample_rays  = generate_sample_rays(mesh, sample_counts, radius=1.3, on_mesh_nums=12000)
+    # ## generate rays
+    # sample_rays  = generate_sample_rays(mesh, sample_counts, radius=1.3, on_mesh_nums=12000)
     
-    ## generate depth
-    sample_depth = generate_sample_depth(scene, sample_rays)
-
-    samples = np.concatenate([sample_rays, sample_depth], axis=1)
+    # ## generate depth
+    # sample_depth = generate_sample_depth(scene, sample_rays)
+    pntcloud = mesh_to_sdf.get_surface_point_cloud(
+        mesh,
+        surface_point_method='sample',
+        scan_resolution=800,
+        sample_point_count=sample_counts,
+        bounding_radius=None
+    )
+    free_pnts, sdfs = pntcloud.sample_sdf_near_surface(sample_counts, False, 'normal', sphere_size=1.3, box=False)
+    samples = np.concatenate([free_pnts, sdfs.reshape(-1, 1)], axis=1)
 
     rand_inds = np.random.permutation(np.arange(samples.shape[0]))
     
@@ -169,7 +177,7 @@ if __name__ == '__main__':
     p = configargparse.ArgumentParser()
     p.add_argument('--mesh', '-m', type=str, required=True, help='`exp_render/model3d/*.stl`')
     p.add_argument('--scale_factor', type=float, default=0.0, help='force scale, auto scale to unit ball if 0.0')
-    p.add_argument('--sample_nums', '-n', type=int, default=4000000, help='rays sampled for each mesh')
+    p.add_argument('--sample_nums', '-n', type=int, default=500000, help='rays sampled for each mesh')
     p.add_argument('--skip', action='store_true', default=False, help='skip sampled meshes')
     args = p.parse_args()
     
@@ -181,7 +189,7 @@ if __name__ == '__main__':
 
     ## sample and save
     for tag, mesh in tqdm(zip(tags, meshes), 'sampling', total=len(tags)):
-        ds_path = os.path.join('exp_render', 'datasets', tag) + '.mat'
+        ds_path = os.path.join('exp_render', 'datasets', tag+'_sdf') + '.mat'
         
         if args.skip and os.path.isfile(ds_path):
             logger.info(f'SKIP {tag}')
@@ -191,7 +199,7 @@ if __name__ == '__main__':
     
         logger.info(f'SUCCESS {tag} with {samples.shape[0]} samples')
         
-        savemat(ds_path, {'ray_depth': samples})
+        savemat(ds_path, {'sdf': samples})
         
         gc.collect()
 

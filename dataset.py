@@ -9,6 +9,29 @@ import torch
 from torch.utils.data import Dataset
 from scipy.io import loadmat
 
+class SimSDFDataset(Dataset):
+    def __init__(self, mat_path, batch_max):
+        super().__init__()
+
+        samples = loadmat(mat_path)['sdf']
+        
+        self.coords = samples[:, :3]
+        self.depth = samples[:, -1:]
+        self.batch_max = batch_max
+
+    def __len__(self):
+        return self.coords.shape[0] // self.batch_max
+
+    def __getitem__(self, idx):
+        sample_size = self.coords.shape[0]
+        # Random coords
+        rand_idcs = np.random.choice(sample_size, size=self.batch_max)
+
+        return {
+            'coords': torch.from_numpy(self.coords[rand_idcs, :]).float(),
+        }, {
+            'sdf': torch.from_numpy(self.depth[rand_idcs, :]).float(),
+        }
 
 class SimRayDepthDataset(Dataset):
     def __init__(self, mat_path, batch_max):

@@ -18,6 +18,7 @@ from torch import nn
 import dataset
 from networks import loss, modules, meta_modules
 from networks.SimRayDFNet import SimRayDistanceField
+from networks.SDFNet import SDFNet
 
 from exp_render import training_loop
 
@@ -58,11 +59,16 @@ if __name__ == '__main__':
         with open(opt.config, 'r') as stream:
             meta_params = yaml.safe_load(stream)
     
-    rdf_dataset = dataset.SimRayDepthDataset(mat_path=meta_params['mat_path'], batch_max=meta_params['batch_max'])
-    dataloader = DataLoader(rdf_dataset, shuffle=True, batch_size=meta_params['batch_size'], num_workers=8, drop_last=True)
 
-    model = SimRayDistanceField(**meta_params)
-    
+    if meta_params['net'] == 'sim_RDF':
+        model = SimRayDistanceField(**meta_params)
+        df_dataset = dataset.SimRayDepthDataset(mat_path=meta_params['mat_path'], batch_max=meta_params['batch_max'])
+    elif meta_params['net'] == 'sim_SDF':
+        model = SDFNet(**meta_params)
+        df_dataset = dataset.SimSDFDataset(mat_path=meta_params['mat_path'], batch_max=meta_params['batch_max'])
+
+    dataloader = DataLoader(df_dataset, shuffle=True, batch_size=meta_params['batch_size'], num_workers=8, drop_last=False)
+
     if 'checkpoint_path' in meta_params and len(meta_params['checkpoint_path']) > 0 and os.path.isfile(meta_params['checkpoint_path']):
         state_dict=torch.load(meta_params['checkpoint_path'])
         filtered_state_dict={k:v for k,v in state_dict.items() if k.find('detach')==-1}

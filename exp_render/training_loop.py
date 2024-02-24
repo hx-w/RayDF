@@ -72,9 +72,18 @@ def train(model, train_dataloader, epochs, lr, steps_til_summary, epochs_til_che
                 writer.add_scalar("total_train_loss", train_loss, total_steps)
 
                 if not total_steps % steps_til_summary:
-                    temp_slice_to_X = utils.generate_scan_super(cam_pos=np.array([radius, 0.0, 0.0]), cam_dir=np.array([-radius, 0.0, 0.0]), model=model.module, resol=512, is_sim=True)
-                    temp_slice_to_Y = utils.generate_scan_super(cam_pos=np.array([0.0, radius, 0.0]), cam_dir=np.array([0.0, -radius, 0.0]), model=model.module, resol=512, is_sim=True)
-                    temp_slice_to_Z = utils.generate_scan_super(cam_pos=np.array([0.0, 0.0, radius]), cam_dir=np.array([0.0, 0.0, -radius]), model=model.module, resol=512, is_sim=True)
+                    if kwargs['net'] == 'sim_RDF':
+                        temp_slice_to_X = utils.generate_scan_super(cam_pos=np.array([radius, 0.0, 0.0]), cam_dir=np.array([-radius, 0.0, 0.0]), model=model.module, resol=1024, is_sim=True)
+                        temp_slice_to_Y = utils.generate_scan_super(cam_pos=np.array([0.0, radius, 0.0]), cam_dir=np.array([0.0, -radius, 0.0]), model=model.module, resol=1024, is_sim=True)
+                        temp_slice_to_Z = utils.generate_scan_super(cam_pos=np.array([0.0, 0.0, radius]), cam_dir=np.array([0.0, 0.0, -radius]), model=model.module, resol=1024, is_sim=True)
+                    elif kwargs['net'] == 'sim_SDF':
+                        # temp_slice_to_X = utils.generate_scan_super_sdf(cam_pos=np.array([radius, 0.0, 0.0]), cam_dir=np.array([-radius, 0.0, 0.0]), model=model.module, resol=1024)
+                        # temp_slice_to_Y = utils.generate_scan_super_sdf(cam_pos=np.array([0.0, radius, 0.0]), cam_dir=np.array([0.0, -radius, 0.0]), model=model.module, resol=1024)
+                        # temp_slice_to_Z = utils.generate_scan_super_sdf(cam_pos=np.array([0.0, 0.0, radius]), cam_dir=np.array([0.0, 0.0, -radius]), model=model.module, resol=1024)
+                        temp_slice_to_X = utils.create_sdf_slice_image(model.module, 1.5*radius, 128, None, 0, None)
+                        temp_slice_to_Y = utils.create_sdf_slice_image(model.module, 1.5*radius, 128, 0, None, None)
+                        temp_slice_to_Z = utils.create_sdf_slice_image(model.module, 1.5*radius, 128, None, None, 0)
+                        
                     writer.add_image('preview_X', temp_slice_to_X, total_steps, dataformats='HWC')
                     writer.add_image('preview_Y', temp_slice_to_Y, total_steps, dataformats='HWC')
                     writer.add_image('preview_Z', temp_slice_to_Z, total_steps, dataformats='HWC')

@@ -43,6 +43,14 @@ def get_pinhole_rays(cam_pos: np.array, cam_dir: np.array, resol: int):
     rays[:, 3:] /= np.linalg.norm(rays[:, 3:], axis=1)[:, np.newaxis]
     return rays
 
+def generate_inference_by_points(coords: np.array, model):
+    inp_coords = torch.from_numpy(coords[:, :3]).reshape((1, coords.shape[0], 3)).cuda().float()
+    sdf = (
+        model.inference(inp_coords) 
+        .squeeze(1).detach().cpu().numpy().reshape((-1, 1))
+    )
+    return np.clip(sdf, -1.0, 1.0)
+
 def generate_inference_by_rays(rays: np.array, model, embedding=None, is_sim=False):
     inp_coords = torch.from_numpy(rays[:, :3]).reshape((1, rays.shape[0], 3)).cuda().float()
     inp_dirs = torch.from_numpy(rays[:, 3:]).reshape((1, rays.shape[0], 3)).cuda().float()
@@ -86,7 +94,7 @@ def generate_deformation_by_rays(rays: np.array, model, embedding):
     
     return *get_dirs_norms(deform_coords), *get_dirs_norms(deform_dirs)
 
-def recurv_inference_by_rays(rays: np.array, model, embedding=None, thred: float=.3, stack_depth: int=0, is_sim: bool=False):
+def recurv_inference_by_rays(rays: np.array, model, embedding=None, thred: float=.2, stack_depth: int=0, is_sim: bool=False):
     if stack_depth > 10:
         return None
     depth = np.zeros(shape=(rays.shape[0], 1))
@@ -177,11 +185,99 @@ def filter_rays_with_sphere(rays: np.array, c: np.array=np.zeros(shape=(3,), dty
     
     return np.concatenate([ray_oris, Ts.reshape(-1, 1)], axis=1)
 
+def create_sdf_slice_image(model, vol_size, img_size, x_axis, y_axis, z_axis):
+    sample_pnts = None
+    if x_axis is not None:
+        sample_pnts = torch.Tensor([
+            (x_axis, (x / img_size) * vol_size - vol_size / 2, (z / img_size) * vol_size - vol_size / 2)
+            for x in range(img_size) for z in range(img_size)
+        ]).cuda()
+    elif y_axis is not None:
+        sample_pnts = torch.Tensor([
+            ((x / img_size) * vol_size - vol_size / 2, y_axis, (z / img_size) * vol_size - vol_size / 2)
+            for x in range(img_size) for z in range(img_size)
+        ]).cuda()
+    else:
+        sample_pnts = torch.Tensor([
+            ((x / img_size) * vol_size - vol_size / 2, (z / img_size) * vol_size - vol_size / 2, z_axis)
+            for x in range(img_size) for z in range(img_size)
+        ]).cuda()
+
+    sdfs = (
+        model.inference(sample_pnts)
+        .squeeze(1).detach().cpu().numpy().reshape((img_size, img_size))
+    )
+
+    style = 'coolwarm'
+    plt.figure(figsize = (10, 10))
+    htmap = sns.heatmap(sdfs, cmap=style, cbar=False, xticklabels=False, yticklabels=False)
+    # if filename:
+    #     htmap.get_figure().savefig(filename, pad_inches=False, bbox_inches='tight')
+    canvas = htmap.get_figure().canvas
+    width, height = canvas.get_width_height()
+    image_array = np.frombuffer(canvas.tostring_rgb(), dtype='uint8')
+    image_array = image_array.reshape(height, width, 3)
+    return image_array
+
+def generate_scan_super_sdf(cam_pos: np.array, cam_dir: np.array, model, resol: int, filename: str=None):
+    rays = get_pinhole_rays(cam_pos, cam_dir, resol) # (n, 6)
+
+    ray_ts = filter_rays_with_sphere(rays, r=1.3)
+    rays[:, :3] = ray_ts[:, :3]
+    
+    max_step = 20
+    thred = 1e-4
+    
+    val_inds = (ray_ts[:, 3:] < np.inf).flatten()
+    march_depth = np.zeros_like(ray_ts[:, 3:])
+    march_depth[val_inds] = generate_inference_by_points(rays[val_inds, :3], model)
+    
+    ends = np.linalg.norm(rays[val_inds, :3] + march_depth[val_inds, :] * rays[val_inds, 3:], axis=1)
+    march_depth[val_inds][ends > 1.3] = -1
+    
+    fil_inds = (march_depth > thred).flatten()
+    
+    curr_step = 1
+    while march_depth[fil_inds].shape[0] > 0:
+        curr_step += 1
+        if curr_step >= max_step:
+            print('=> Ray marching iter max')
+            break
+        
+        new_depth = np.copy(march_depth)
+        new_depth[fil_inds, :] = march_depth[fil_inds, :] + generate_inference_by_points(rays[fil_inds, :3] + rays[fil_inds, 3:] * march_depth[fil_inds, :], model)
+        ends = np.linalg.norm(rays[fil_inds, :3] + new_depth[fil_inds, :] * rays[fil_inds, 3:], axis=1)
+        new_depth[fil_inds][ends > 1.3] = -1.
+        
+        fil_inds = ((new_depth - march_depth) > thred).flatten()
+        march_depth = np.copy(new_depth)
+    
+    march_depth[march_depth < 0] = np.inf
+    depth = ray_ts[:, -1:] + march_depth
+    
+    depth_mat = depth.reshape((resol, resol))
+    depth_mat[depth_mat == np.inf] = 0.
+    
+    style = 'gray_r'
+    
+    norm = Normalize()
+    cmap = cm.get_cmap(style)
+    image  = cmap(norm(depth_mat))[:, :, :3]
+
+    # depth_mat[depth_mat == 0.] = np.inf
+    normal_image, _ = depth2normal_tangentspace(depth_mat)
+    normal_image[depth_mat == 0.] = np.array([255., 255., 255.], dtype=np.uint8)
+    
+    normal_rbg = cv2.cvtColor(normal_image, cv2.COLOR_BGR2RGB)
+    normal_rbg = (normal_rbg.astype(np.float64) / 255.)
+ 
+    return np.concatenate([image, normal_image], axis=0)
+    
 
 def generate_scan_super(cam_pos: np.array, cam_dir: np.array, model, resol: int, filename: str=None, embedding=None, methods: list=['recursive', 'raw'], is_sim=False):
     rays = get_pinhole_rays(cam_pos, cam_dir, resol) # (n, 6)
     
-    ray_ts = filter_rays_with_sphere(rays, r=1.25)
+    ray_ts = filter_rays_with_sphere(rays, r=1.3)
     rays[:, :3] = ray_ts[:, :3]
     
     image_arrs = []

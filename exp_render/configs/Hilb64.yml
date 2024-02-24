@@ -10,3 +10,4 @@ batch_max: 8000
 steps_til_summary: 200
 checkpoint_path: ./exp_render/logs/Hilb64/checkpoints/model_current.pth
 mat_path: exp_render/datasets/Hilb64Thick.mat
+net: sim_RDF
