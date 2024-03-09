@@ -22,7 +22,7 @@ class SimRayDistanceField(nn.Module):
     def name():
         return 'SimRayDistanceField'
 
-    def inference(self, coords, dirs, *args, **kwargs):
+    def forward(self, coords, dirs):
         with torch.no_grad():
             output1 = self.res1({'coords': coords, 'dirs': dirs})['model_out']
             output2 = self.res2({'inputs': torch.cat([output1, coords, dirs], 2)})
@@ -30,15 +30,3 @@ class SimRayDistanceField(nn.Module):
 
             output = self.net({'coords': coords, 'dirs': dirs})['model_out']
             return torch.clamp(output, 0.0, 2.0)
-
-    # input: N x (L+3)
-    def forward(self, model_input, gt, *args, **kwargs):
-        output1 = self.res1(model_input)['model_out']
-        depth = self.res2({'inputs': torch.cat([output1, model_input['coords'], model_input['dirs']], 2)})['model_out']
-        # depth = self.net(model_input)['model_out']
-
-        grad_rdf = torch.autograd.grad(depth, [model_input['dirs']], grad_outputs=torch.ones_like(depth), create_graph=True)[0]
-    
-        losses = sim_rdf_loss({'model_out': depth, 'grad': grad_rdf}, gt)
-        
-        return losses

@@ -141,7 +141,7 @@ class RayDistanceField(nn.Module):
         # new_dirs = normalize(new_dirs, dim=2)
         ## modify [phi, theta]
         # new_dirs[:, :, 0] %= 2 * torch.pi
-
+        
         # calculate gradient of the deformation field
         x = model_output['model_in']['coords'] # input coordinates
         u = deform_coords[:, :, 0]

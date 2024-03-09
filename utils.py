@@ -13,6 +13,7 @@ import matplotlib.cm as cm
 from matplotlib.colors import Normalize
 from tqdm import tqdm
 from scipy.linalg import expm, norm
+import point_cloud_utils as pcu
     
 import preprocess as prep
 
@@ -34,7 +35,7 @@ def get_pinhole_rays(cam_pos: np.array, cam_dir: np.array, resol: int):
         fov_deg=90,
         center=cam_pos + cam_dir,
         eye=cam_pos,
-        up=[0, 1, 0] if (cam_dir[0] != 0 or cam_dir[2] != 0) else [0, 0, 1],
+        up=[0, -1, 0] if (cam_dir[0] != 0 or cam_dir[2] != 0) else [0, 0, 1],
         width_px=resol,
         height_px=resol,
     )
@@ -95,7 +96,7 @@ def generate_deformation_by_rays(rays: np.array, model, embedding):
     return *get_dirs_norms(deform_coords), *get_dirs_norms(deform_dirs)
 
 def recurv_inference_by_rays(rays: np.array, model, embedding=None, thred: float=.2, stack_depth: int=0, is_sim: bool=False):
-    if stack_depth > 10:
+    if stack_depth > 20:
         return None
     depth = np.zeros(shape=(rays.shape[0], 1))
     
@@ -299,13 +300,16 @@ def generate_scan_super(cam_pos: np.array, cam_dir: np.array, model, resol: int,
         depth = ray_ts[:, -1:] + depth
 
         depth_mat = depth.reshape((resol, resol))
-        depth_mat[depth_mat == np.inf] = 0.
+        inf_mask = depth_mat == np.inf
+        depth_mat[inf_mask] = np.min(depth_mat, keepdims=False, axis=None)
         
         style = 'gray_r'
         
         norm = Normalize()
         cmap = cm.get_cmap(style)
         image  = cmap(norm(depth_mat))[:, :, :3]
+        image[inf_mask] = np.array([1, 1, 1])
+        depth_mat[inf_mask] = 0.
 
         # depth_mat[depth_mat == 0.] = np.inf
         normal_image, _ = depth2normal_tangentspace(depth_mat)
@@ -397,7 +401,7 @@ def generate_tour_video_super(model, radius: float, FPS: int, frames: int, resol
 
         cv2.destroyAllWindows()
 
-def generate_pointcloud_super(model, counts: int, radius: float, embedding=None, filter_=True):
+def generate_pointcloud_super(model, counts: int, radius: float, embedding=None, filter_=True, is_sim=False):
     in_ball_cam_pos_1 = prep.sample_uniform_points_in_unit_sphere(counts)
     in_ball_cam_pos_2 = prep.sample_uniform_points_in_unit_sphere(counts)
     free_dir = in_ball_cam_pos_2 - in_ball_cam_pos_1
@@ -406,7 +410,7 @@ def generate_pointcloud_super(model, counts: int, radius: float, embedding=None,
 
     rays = np.concatenate([free_ori, free_dir], axis=1)
 
-    depth = recurv_inference_by_rays(rays, model, embedding, thred=0.2, stack_depth=0)
+    depth = recurv_inference_by_rays(rays, model, embedding, thred=0.2, stack_depth=0, is_sim=is_sim)
     
     samples = np.concatenate([rays, depth], axis=1)
     
@@ -423,16 +427,57 @@ def generate_pointcloud_super(model, counts: int, radius: float, embedding=None,
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(points)
     
-    cl, ind = pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=1.0)
-    newpcd = pcd.select_by_index(ind)
+    # cl, ind = pcd.remove_statistical_outlier(nb_neighbors=10, std_ratio=1.0)
+    # newpcd = pcd.select_by_index(ind)
     
-    points = np.asarray(newpcd.points)
+    # points = np.asarray(newpcd.points)
+    points = np.asarray(pcd.points)
     
     new_points_num = points.shape[0]
     
     print(f'> pointcloud outlier removed: {raw_points_num - new_points_num}')
 
     return points
+
+def depth2normal_exp(depth_mat: np.array, rays_mat: np.array):
+    resol = depth_mat.shape[0]
+    # depth_mat = depth_mat.reshape((resol, resol, 1))
+    inv_mask = depth_mat != np.inf
+    rays_dir = rays_mat[:, :, 3:]
+    
+    Td = np.zeros_like(rays_dir)
+    Td[inv_mask] = depth_mat[inv_mask].reshape(-1, 1) * rays_dir[inv_mask, :]
+
+    # Calculate the partial derivatives of depth with respect to x and y
+    # dx = cv2.Sobel(Td, cv2.CV_32F, 1, 0)
+    # dy = cv2.Sobel(Td, cv2.CV_32F, 0, 1)
+    dx = cv2.Scharr(Td, cv2.CV_32F, 1, 0)
+    dy = cv2.Scharr(Td, cv2.CV_32F, 0, 1)
+    
+    dx_dy = np.cross(dx, dy, axis=2)
+    dx_dy[depth_mat == np.inf] = np.array([0, 0, 1])
+    dx_dy /= np.linalg.norm(dx_dy, axis=2)[:, :, np.newaxis]
+    
+    normal = np.ones_like(rays_dir) * np.array([0., 0., 1.])
+    normal[inv_mask] = dx_dy[inv_mask]
+    normal_dir_not_correct = (rays_dir * normal).sum(axis=-1) > 0
+    normal[normal_dir_not_correct] = -normal[normal_dir_not_correct]
+    
+    normals = (normal * 0.5 + 0.5) * 255.0
+    normals = normals.astype(np.uint8)
+
+    # 使用 bilateralFilter 去噪
+    d = 128
+    sigmaColor = 75
+    sigmaSpace = 75
+    normals_filtered = cv2.bilateralFilter(normals, d, sigmaColor, sigmaSpace)
+
+    # 如果我们需要进一步处理数据，可能需要把它转回 [0,1] 区间
+    normals_filtered = normals_filtered.astype(np.float32) / 255.0
+    normal = (normals_filtered - 0.5) / 0.5
+
+    return normal
+    
 
 def depth2normal_tangentspace(depth_mat: np.array):
     depth_mat[depth_mat == np.inf] = 0.
@@ -452,7 +497,9 @@ def depth2normal_tangentspace(depth_mat: np.array):
     normal = np.dstack((-dx, -dy, np.ones((rows, cols))))
     norm = np.sqrt(np.sum(normal**2, axis=2, keepdims=True))
     normal = np.divide(normal, norm, out=np.zeros_like(normal), where=norm != 0)
+    # normal[:, :, :] /= np.linalg.norm(normal[:, :, :], axis=2)[:, :, np.newaxis]
     raw_normal = normal
+    
 
     # Map the normal vectors to the [0, 255] range and convert to uint8
     normal = (normal + 1) * 127.5
@@ -474,7 +521,7 @@ def depth2normal_worldspace(rays: np.array, depth_mat: np.array):
     
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(pts)
-    pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamKNN(knn=50))
+    pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamKNN(knn=64))
     normals[depth < np.inf, :] = np.asarray(pcd.normals)
     
     # check normal direction: if ray dir and normal angle is smaller than 90, reverse normal
@@ -482,6 +529,21 @@ def depth2normal_worldspace(rays: np.array, depth_mat: np.array):
     normal_dir_not_correct = (rays[:, 3:] * normals).sum(axis=-1) > 0
     normals[normal_dir_not_correct] = -normals[normal_dir_not_correct]
 
+    return normals.reshape((w, h, 3))
+
+def depth2normal_worldspace_super(rays, depth_mat):
+    w, h = depth_mat.shape
+    normals = np.ones(shape=(w * h, 3)) * np.array([0., 0., 1.])
+    
+    depth = depth_mat.flatten()
+    
+    pts = rays[depth < np.inf, :3] + depth[depth < np.inf].reshape(-1, 1) * rays[depth < np.inf, 3:]
+    # normal = pcu.estimate_point_cloud_normals_ball(pts, 0.1)
+    idx, normal = pcu.estimate_point_cloud_normals_knn(pts, 512)
+    normals[depth < np.inf, :] = normal
+    normal_dir_not_correct = (rays[:, 3:] * normals).sum(axis=-1) > 0
+    normals[normal_dir_not_correct] = -normals[normal_dir_not_correct]
+    
     return normals.reshape((w, h, 3))
 
 def get_rotation_matrix_from_points(p1: np.array, p2: np.array):

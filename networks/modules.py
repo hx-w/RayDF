@@ -95,7 +95,7 @@ class FCBlock(MetaModule):
         if last_layer_init is not None:
             self.net[-1].apply(last_layer_init)
 
-    def forward(self, coords, params=None, **kwargs):
+    def forward(self, coords, params=None):
         if params is not None:
             params = get_subdict(params, 'net')
 

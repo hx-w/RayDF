@@ -78,7 +78,7 @@ def raydf_loss(model_output, gt, loss_grad_deform=5):
 
     # -----------------
     return {
-        'depth': torch.abs(depth_constraint ** 2).mean() * 8e3, 
+        'depth': torch.abs(depth_constraint ** 1).mean() * 2e5, 
         'embeddings_constraint': embeddings_constraint.mean() * 1e2,
         'deform_coord_constraint': deform_coord_constraint.mean() * 5e2,
         'deform_dir_constraint': deform_dir_constraint.mean() * 5e2,
@@ -116,8 +116,8 @@ def odf_loss(model_output, gt):
 
     # -----------------
     return {
-        'depth': torch.abs(depth_constraint ** 2).mean() * 3e6,
-        'cross_entropy_constraint': cross_entropy_constraint * 1e2,
+        'depth': torch.abs(depth_constraint ** 1).mean() * 2e5,
+        # 'cross_entropy_constraint': cross_entropy_constraint * 1e2,
         'embeddings_constraint': embeddings_constraint.mean() * 1e2,
         'inner_constraint': inner_constraint.mean() * 1e2
     }
@@ -141,9 +141,9 @@ def embedding_loss(model_output, gt):
 
     # -----------------
     return {
-        'depth_constraint': torch.abs(depth_constraint ** 2).mean() * 8e3,
+        'depth_constraint': torch.abs(depth_constraint ** 1).mean() * 2e5,
         'embeddings_constraint': embeddings_constraint.mean() * 2e2,
-        'cross_entropy_constraint': cross_entropy_constraint.mean() * 2e2,
+        # 'cross_entropy_constraint': cross_entropy_constraint.mean() * 2e2,
         'inner_constraint': inner_constraint.mean() * 2e2
     }
 
@@ -183,10 +183,10 @@ def sim_sdf_loss(model_output, gt):
     
     sdf_constraint = torch.clamp(pred_sdf,-1.0,1.0)-torch.clamp(gt_sdf,-1.0,1.0)
     grad_constraint = torch.abs(grad_sdf.norm(dim=-1) - 1)
-    inter_constraint = torch.exp(-1e2 * torch.abs(pred_sdf))
+    inter_constraint = torch.where(gt_sdf == 0., torch.zeros_like(pred_sdf), torch.exp(-1e2 * torch.abs(pred_sdf)))
     
     return {
-        'sdf': torch.abs(sdf_constraint ** 2).mean() * 2e5, 
-        'inter': inter_constraint.mean() * 5e1,
-        'grad_constraint': grad_constraint.mean() * 5e2,
+        'sdf': torch.abs(sdf_constraint ** 1).mean() * 2e5, 
+        'inter': inter_constraint.mean() * 2e2,
+        'grad_constraint': grad_constraint.mean() * 2e2,
     }

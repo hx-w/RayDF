@@ -4,12 +4,14 @@ import os
 import numpy as np
 import utils
 import matplotlib.cm as cm
+import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 import yaml
 import torch
 import cv2
 from tqdm import tqdm
 import time
+import seaborn as sns
 
 from networks.RayDFNet import RayDistanceField
 from render.shade import shading_phong
@@ -21,13 +23,15 @@ class ImplicitDrawable:
         Mscale: np.array = [1., 1., 1.],
         Mrot: np.array = [[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]],
         Mtrans: np.array = [0., 0., 0.],
-        raw_color: np.array = [100., 100., 100.]
+        raw_color: np.array = [100., 100., 100.],
+        is_sim: bool = False
     ):
         self.latent = embedding
         self.Mscale = np.array(Mscale)
         self.Mrot   = np.array(Mrot)
         self.Mtrans = np.array(Mtrans)
         self.raw_color = np.array(raw_color, dtype=np.uint8)
+        self.is_sim = is_sim
 
 class PLight:
     def __init__(self, pos: np.array, color: np.array):
@@ -57,13 +61,14 @@ class ImplicitScene:
         Mscale: np.array = [1., 1., 1.],
         Mrot: np.array = [[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]],
         Mtrans: np.array = [0., 0., 0.],
-        raw_color: np.array = [100., 100., 100.]
+        raw_color: np.array = [100., 100., 100.],
+        is_sim: bool = False
     ):
         if model_name not in self.models.keys():
             self.models[model_name] = model
             self.drawables[model_name] = []
         
-        self.drawables[model_name].append(ImplicitDrawable(embedding, Mscale, Mrot, Mtrans, raw_color))
+        self.drawables[model_name].append(ImplicitDrawable(embedding, Mscale, Mrot, Mtrans, raw_color, is_sim))
     
     def add_point_light(self, light: PLight):
         self.lights.append(light)
@@ -102,14 +107,17 @@ class ImplicitScene:
         
         for model_name, model in self.models.items():
             for inst in self.drawables[model_name]:
-                drays = self._reverse_transform(rays, inst)           
+                drays = self._reverse_transform(rays, inst)
+                # drays = rays       
                 
                 ray_ts = utils.filter_rays_with_sphere(drays, r=1.2)
                 drays[:, :3] = ray_ts[:, :3]
                 
-                # depth = utils.recurv_inference_by_rays(drays, model, inst.latent)
-                depth = utils.generate_inference_by_rays(drays, model, inst.latent)[:, -1]
+                depth = utils.recurv_inference_by_rays(drays, model, inst.latent, is_sim=inst.is_sim)
+                # depth = utils.generate_inference_by_rays(drays, model, inst.latent, inst.is_sim)[:, -1]
                 
+                if depth is None:
+                    depth = np.zeros(shape=(resol, resol))
                 depth[depth >= 1.8] = np.inf
                 
                 depth = depth.reshape(-1, 1)
@@ -152,14 +160,16 @@ class ImplicitScene:
             
             frame = (frame * 255.).astype(np.uint8)
             frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+
+            
             return frame
 
         def normal_shade() -> np.array:
             normal_buffer = np.copy(self.gbuffer.normal_buffer)
-            # cam_pos_std = cam_pos / np.linalg.norm(cam_pos)
+            cam_pos_std = cam_pos / np.linalg.norm(cam_pos)
             
-            # normal_t = utils.get_rotation_matrix_from_points(cam_pos_std, np.array([0., 0., 1.]))
-            # normal_buffer = self.gbuffer.normal_buffer @ normal_t.T
+            normal_t = utils.get_rotation_matrix_from_points(cam_pos_std, np.array([0., 0., 1.]))
+            normal_buffer = self.gbuffer.normal_buffer @ normal_t.T
             
             normal_buffer = (normal_buffer + 1) * 127.5
             normal_buffer = normal_buffer.clip(0, 255).astype(np.uint8)
@@ -202,7 +212,75 @@ class ImplicitScene:
         colors = {mode: log_profile(shade_mapper[mode], mode) for mode in modes}
         
         return colors
+
+def render_snapshot(shot_path: str, impl_scene: ImplicitScene, resol: int, cam_pos: np.array, cam_dir: np.array):
+    raw_rays = utils.get_pinhole_rays(cam_pos, cam_dir, resol)
+    impl_scene._process_GBuffer(raw_rays, resol, refresh=True)
+
+    depth_buffer = np.copy(impl_scene.gbuffer.depth_buffer)
+    
+    mask = depth_buffer == np.inf
+    depth_buffer[mask] = np.min(depth_buffer, axis=None, keepdims=False)
+
+    style = 'Greys'
+
+    htmap = sns.heatmap(depth_buffer, cbar=True, xticklabels=False, yticklabels=False, mask=mask)
+    htmap.get_figure().savefig(shot_path.replace('.png', f'_depth.png'), pad_inches=False, bbox_inches='tight', dpi=400)
+    plt.close()
+    
+    depth_buffer[mask] = np.inf
+    normal = utils.depth2normal_exp(depth_buffer, raw_rays.reshape((resol, resol, 6)))
+    # normal = utils.depth2normal_worldspace(raw_rays, depth_buffer)
+    
+    frame = np.zeros_like(impl_scene.gbuffer.raw_color, dtype=np.uint8)
+    shading_phong(
+        raw_rays.reshape((resol, resol, 6)),
+        impl_scene.gbuffer.depth_buffer,
+        normal,
+        impl_scene.gbuffer.raw_color,
+        impl_scene.lights_mat,
+        frame
+    )
+    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+    cv2.imwrite(shot_path.replace('.png', f'_phong.png'), frame)
+    
+    normal = (normal + 1) * 127.5
+    normal = normal.clip(0, 255).astype(np.uint8)
+
+    # Save the normal map to a file
+    normal_bgr = cv2.cvtColor(normal, cv2.COLOR_RGB2BGR)
+    normal_bgr[mask] = np.array([255., 255., 255.], dtype=np.uint8)
+    cv2.imwrite(shot_path.replace('.png', f'_normal.png'), normal_bgr)
+    
+    normal = utils.depth2normal_worldspace_super(raw_rays, depth_buffer)
+    frame = np.zeros_like(impl_scene.gbuffer.raw_color, dtype=np.uint8)
+    shading_phong(
+        raw_rays.reshape((resol, resol, 6)),
+        impl_scene.gbuffer.depth_buffer,
+        normal,
+        impl_scene.gbuffer.raw_color,
+        impl_scene.lights_mat,
+        frame
+    )
+    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+    cv2.imwrite(shot_path.replace('.png', f'_phong_2.png'), frame)
+    
+    normal = (normal + 1) * 127.5
+    normal = normal.clip(0, 255).astype(np.uint8)
+
+    # Save the normal map to a file
+    normal_bgr = cv2.cvtColor(normal, cv2.COLOR_RGB2BGR)
+    normal_bgr[mask] = np.array([255., 255., 255.], dtype=np.uint8)
+    cv2.imwrite(shot_path.replace('.png', f'_normal_2.png'), normal_bgr)
+    
+    
+    if False:
+        modes = ['depth', 'normal', 'blinn-phong']
+        frames = impl_scene.deferred_shading(cam_pos, -cam_pos, resol, modes, True)
         
+        for mode in modes:
+            cv2.imwrite(shot_path.replace('.png', f'_{mode}.png'), frames[mode])
+
 def render_tour_video(video_path: str, impl_scene: ImplicitScene, FPS: int, resol: int, frames: int, view_radius):
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     video_writers = {

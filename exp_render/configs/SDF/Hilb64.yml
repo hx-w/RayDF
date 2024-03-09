@@ -1,5 +1,5 @@
 batch_size: 32
-epochs: 5000
+epochs: 3000
 epochs_til_checkpoint: 100
 experiment_name: Hilb64_SDF
 hidden_num: 128
@@ -9,5 +9,5 @@ model_type: sine
 batch_max: 4000
 steps_til_summary: 200
 checkpoint_path: ./exp_render/logs/Hilb64_SDF/checkpoints/model_current.pth
-mat_path: exp_render/datasets/Hilb64Thick_sdf.mat
+mat_path: exp_render/datasets/Hilb64_sdf.mat
 net: sim_SDF

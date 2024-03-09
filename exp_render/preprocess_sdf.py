@@ -67,6 +67,9 @@ def load_and_unify(mesh_paths: List[str], scale_factor: float=0.0) -> Tuple[trim
     mesh_num = len(mesh_paths)
     meshes =  [trimesh.load(mpath, force='mesh') for mpath in tqdm(mesh_paths, desc='loading')]
     
+    for mesh in meshes:
+        mesh.vertices -= mesh.centroid
+
     # to unit ball
     if scale_factor:
         max_scale = scale_factor
@@ -81,7 +84,8 @@ def load_and_unify(mesh_paths: List[str], scale_factor: float=0.0) -> Tuple[trim
             meshes[ind].apply_scale(1. / max_scale)
 
             try:
-                meshes[ind].export(mesh_paths[ind])
+                pass
+                # meshes[ind].export(mesh_paths[ind])
             except Exception as e:
                 logger.warn(f'SKIP file saving failed: {mesh_paths[ind]}')
 
@@ -142,11 +146,14 @@ def generate_sample_rays(mesh: trimesh.Trimesh, counts: int, radius: float=1.3, 
 '''
 无交点的射线长度设为2.0
 '''   
-def generate_sample_depth(scene: o3d.t.geometry.RaycastingScene, rays: np.array) -> np.array:
+def generate_sample_depth(scene: o3d.t.geometry.RaycastingScene, rays: np.array, return_normal=False) -> np.array:
     riposta = scene.cast_rays(o3c.Tensor(rays.astype(np.float32)))
     
     depth = riposta['t_hit'].numpy().reshape(-1, 1)
     depth[depth == np.inf] = 2.0
+    if return_normal:
+        normal = riposta['primitive_normals'].numpy().reshape(-1, 3)
+        return depth, normal
     
     return depth
 
@@ -167,7 +174,7 @@ def sample_dataset(mesh: trimesh.Trimesh, sample_counts: int) -> np.array:
         bounding_radius=None
     )
     free_pnts, sdfs = pntcloud.sample_sdf_near_surface(sample_counts, False, 'normal', sphere_size=1.3, box=False)
-    samples = np.concatenate([free_pnts, sdfs.reshape(-1, 1)], axis=1)
+    samples = np.concatenate([free_pnts, np.abs(sdfs.reshape(-1, 1))], axis=1)
 
     rand_inds = np.random.permutation(np.arange(samples.shape[0]))
     

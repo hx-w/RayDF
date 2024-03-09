@@ -1,5 +1,5 @@
 batch_size: 32
-epochs: 5000
+epochs: 4500
 epochs_til_checkpoint: 100
 experiment_name: airplane
 hidden_num: 128
@@ -11,3 +11,4 @@ steps_til_summary: 200
 checkpoint_path: ./exp_render/logs/airplane/checkpoints/model_current.pth
 mat_path: ./exp_render/datasets/airplane.mat
 net: sim_RDF
+source_mesh: ./exp_render/model3d/airplane.obj

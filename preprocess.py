@@ -139,12 +139,15 @@ def generate_sample_rays(mesh: trimesh.Trimesh, counts: int, radius: float=1.3, 
 '''
 无交点的射线长度设为2.0
 '''   
-def generate_sample_depth(scene: o3d.t.geometry.RaycastingScene, rays: np.array) -> np.array:
+def generate_sample_depth(scene: o3d.t.geometry.RaycastingScene, rays: np.array, return_normal: bool=False) -> np.array:
     riposta = scene.cast_rays(o3c.Tensor(rays.astype(np.float32)))
     
     depth = riposta['t_hit'].numpy().reshape(-1, 1)
     depth[depth == np.inf] = 2.0
     
+    if return_normal:
+        normal = riposta['primitive_normals'].numpy().reshape(-1, 3)
+        return depth, normal
     return depth
 
 def sample_dataset(mesh: trimesh.Trimesh, sample_counts: int) -> np.array:
